@@ -1,3 +1,8 @@
+# Data & Favorites
+data/
+data/favorites.json
+data/*.json
+
 # Security & Environment
 .env
 .venv/
