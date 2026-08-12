@@ -40,6 +40,11 @@ class GroupwareClient:
             "Accept": "application/json, text/plain, */*",
         })
 
+    @property
+    def is_authenticated(self) -> bool:
+        """Check if GroupwareClient session is authenticated."""
+        return len(self.session.cookies) > 0 or getattr(self, "_is_authenticated", False)
+
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Helper method to send HTTP request and validate response."""
         url = f"{self.base_url}{endpoint}"
@@ -86,7 +91,10 @@ class GroupwareClient:
 
         data = self._request("POST", "/api/login", json=payload)
         code = str(data.get("code")) if data.get("code") is not None else ""
-        return code == "200"
+        success = (code == "200")
+        if success:
+            self._is_authenticated = True
+        return success
 
     def has_gosso_cookie(self) -> bool:
         """Check if GOSSOcookie exists in session cookies."""

@@ -28,6 +28,13 @@ CB_REFRESH_NOW = "action:refresh_now"
 CB_FAV_ADD_ASSET = "fav_action:add_asset"
 CB_FAV_ADD_ROOM = "fav_action:add_room"
 CB_FAV_REMOVE = "fav_action:remove"
+CB_FAV_ADD_ASSET_PREFIX = "fav_add_asset:"
+CB_FAV_SEL_ASSET_PREFIX = "fav_sel_asset:"
+CB_FAV_ADD_ROOM_PREFIX = "fav_add_room:"
+CB_FAV_DEL_ASSET_PREFIX = "fav_del_asset:"
+CB_FAV_DEL_ROOM_PREFIX = "fav_del_room:"
+CB_AUTH_CONNECT = "auth:connect"
+CB_AUTH_UNLINK = "auth:unlink"
 
 
 class UserStateManager:

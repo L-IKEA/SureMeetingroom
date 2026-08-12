@@ -321,10 +321,18 @@ class MeetingRoomService:
             # Construct a dummy room if not present in item list
             target_room = Room(id=room_id, asset_id=asset_id, name=f"Room {room_id}", capacity=None, raw_name=f"Room {room_id}")
 
+        day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+
         room_reservations = res_map.get(room_id, [])
         status_info = RoomStatusService.calculate_status(target_room, room_reservations, now=now)
 
-        sorted_res = sorted(room_reservations, key=lambda r: r.start_time)
+        # Filter reservations overlapping with target_date
+        today_reservations = [
+            r for r in room_reservations
+            if r.end_time > day_start and r.start_time < day_end
+        ]
+        sorted_res = sorted(today_reservations, key=lambda r: r.start_time)
         reservation_slots = [(r.start_time, r.end_time) for r in sorted_res]
 
         return {

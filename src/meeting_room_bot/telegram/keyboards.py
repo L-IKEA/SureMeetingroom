@@ -11,6 +11,11 @@ from meeting_room_bot.telegram.states import (
     CB_FAV_ADD_ASSET,
     CB_FAV_ADD_ROOM,
     CB_FAV_REMOVE,
+    CB_FAV_ADD_ASSET_PREFIX,
+    CB_FAV_SEL_ASSET_PREFIX,
+    CB_FAV_ADD_ROOM_PREFIX,
+    CB_FAV_DEL_ASSET_PREFIX,
+    CB_FAV_DEL_ROOM_PREFIX,
     CB_MENU_FAV,
     CB_MENU_NOW,
     CB_MENU_WHEN,
@@ -22,6 +27,7 @@ from meeting_room_bot.telegram.states import (
     CB_SCOPE_ALL,
     CB_SCOPE_FAV,
     CB_TIME_PREFIX,
+    CB_AUTH_CONNECT,
 )
 
 
@@ -249,6 +255,166 @@ def favorites_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
         ],
     ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def fav_add_asset_keyboard(locations: List[dict]) -> InlineKeyboardMarkup:
+    """Build location picker grid keyboard for adding asset favorite."""
+    buttons: List[InlineKeyboardButton] = []
+    for loc in locations:
+        label = loc.get("short_label") or format_location_label(loc.get("name", ""))
+        buttons.append(InlineKeyboardButton(f"[{label}]", callback_data=f"{CB_FAV_ADD_ASSET_PREFIX}{loc['id']}"))
+
+    keyboard: List[List[InlineKeyboardButton]] = []
+    row: List[InlineKeyboardButton] = []
+    for btn in buttons:
+        row.append(btn)
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("⬅️ 뒤로", callback_data=CB_MENU_FAV),
+        InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def fav_select_asset_keyboard(locations: List[dict]) -> InlineKeyboardMarkup:
+    """Build location picker grid keyboard for selecting asset before adding room favorite."""
+    buttons: List[InlineKeyboardButton] = []
+    for loc in locations:
+        label = loc.get("short_label") or format_location_label(loc.get("name", ""))
+        buttons.append(InlineKeyboardButton(f"[{label}]", callback_data=f"{CB_FAV_SEL_ASSET_PREFIX}{loc['id']}"))
+
+    keyboard: List[List[InlineKeyboardButton]] = []
+    row: List[InlineKeyboardButton] = []
+    for btn in buttons:
+        row.append(btn)
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("⬅️ 뒤로", callback_data=CB_MENU_FAV),
+        InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def fav_add_room_keyboard(asset_id: int, rooms: List[dict]) -> InlineKeyboardMarkup:
+    """Build room picker grid keyboard for adding room favorite."""
+    buttons: List[InlineKeyboardButton] = []
+    for r in rooms:
+        name = r.get("name", f"Room {r['id']}")
+        buttons.append(InlineKeyboardButton(f"[{name}]", callback_data=f"{CB_FAV_ADD_ROOM_PREFIX}{r['id']}"))
+
+    keyboard: List[List[InlineKeyboardButton]] = []
+    row: List[InlineKeyboardButton] = []
+    for btn in buttons:
+        row.append(btn)
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton("⬅️ 위치 선택", callback_data=CB_FAV_ADD_ROOM),
+        InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def fav_delete_keyboard(asset_items: List[dict], room_items: List[dict]) -> InlineKeyboardMarkup:
+    """Build deletion list keyboard for removing favorite items."""
+    keyboard: List[List[InlineKeyboardButton]] = []
+
+    for a in asset_items:
+        label = format_location_label(a.get("name", ""))
+        keyboard.append([InlineKeyboardButton(f"🗑️ 🏢 [{label}] 삭제", callback_data=f"{CB_FAV_DEL_ASSET_PREFIX}{a['id']}")])
+
+    for r in room_items:
+        name = r.get("name", f"Room {r['id']}")
+        keyboard.append([InlineKeyboardButton(f"🗑️ 🚪 {name} 삭제", callback_data=f"{CB_FAV_DEL_ROOM_PREFIX}{r['id']}")])
+
+    keyboard.append([
+        InlineKeyboardButton("⭐ 내 즐겨찾기", callback_data=CB_MENU_FAV),
+        InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def fav_added_result_keyboard(next_action: str = "asset") -> InlineKeyboardMarkup:
+    """Build navigation keyboard after adding a favorite."""
+    add_btn_text = "➕ 다른 위치 추가" if next_action == "asset" else "➕ 다른 회의실 추가"
+    add_cb_data = CB_FAV_ADD_ASSET if next_action == "asset" else CB_FAV_ADD_ROOM
+
+    keyboard = [
+        [
+            InlineKeyboardButton("⭐ 내 즐겨찾기", callback_data=CB_MENU_FAV),
+            InlineKeyboardButton(add_btn_text, callback_data=add_cb_data),
+        ],
+        [
+            InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def is_localhost_url(url: str) -> bool:
+    """Check if base URL is a local development URL (localhost / 127.0.0.1)."""
+    if not url:
+        return True
+    url_lower = url.lower()
+    return "localhost" in url_lower or "127.0.0.1" in url_lower or not url_lower.startswith("https://")
+
+
+def unauthenticated_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
+    """Build guidance keyboard when user has no active Groupware session."""
+    from meeting_room_bot.account_link.token_service import token_service
+    import os
+
+    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
+    token = token_service.create_token(str(user_id))
+    url = f"{base_url}/link/{token}"
+
+    if is_localhost_url(base_url):
+        # Localhost cannot be sent as Telegram URL button (Telegram BadRequest error)
+        keyboard = [
+            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+        ]
+    else:
+        # Production HTTPS URL can be sent as Telegram URL button
+        keyboard = [
+            [InlineKeyboardButton("🔐 회사 계정 연결", url=url)],
+            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+        ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def session_expired_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
+    """Build guidance keyboard when user session has expired (401)."""
+    from meeting_room_bot.account_link.token_service import token_service
+    import os
+
+    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
+    token = token_service.create_token(str(user_id))
+    url = f"{base_url}/link/{token}"
+
+    if is_localhost_url(base_url):
+        keyboard = [
+            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+        ]
+    else:
+        keyboard = [
+            [InlineKeyboardButton("🔐 다시 연결", url=url)],
+            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+        ]
     return InlineKeyboardMarkup(keyboard)
 
 

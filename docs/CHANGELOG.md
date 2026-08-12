@@ -1,6 +1,37 @@
 # Change Log (변경 이력)
 
-## [Unreleased / Latest Update] - 2026-08-11
+## [v0.1-local-mvp] - 2026-08-12
+
+### 🔗 계정 연동 (Account Link) 및 세션 인증 (Auth Session)
+- **`src/meeting_room_bot/account_link/`**:
+  - 사용자별 그룹웨어 계정을 안전하게 등록 및 연동하기 위한 로컬 인증 웹서버 모듈 구현
+  - 텔레그램 봇 유저 ID와 그룹웨어 사용자 인증 정보를 바인딩하여 멀티 사용자 환경 지원
+- **`src/meeting_room_bot/auth/` & `providers/`**:
+  - 그룹웨어 세션 유지 및 토큰/쿠키 관리 프로바이더 구현 (`SessionProvider`)
+
+### 🚀 로컬 통합 앱 실행기 (Local App Runner)
+- **`scripts/run_local_app.py`**:
+  - 계정 연동 웹서버와 텔레그램 봇 서비스를 원스톱으로 실행할 수 있는 백그라운드 오케스트레이션 스크립트 추가
+- **`scripts/run_account_link_server.py`**:
+  - 계정 연동 전용 로컬 HTTP 서버 실행기 추가
+
+### 🤖 텔레그램 봇 기능 및 실모드(Real Mode) 연동 강화
+- **`src/meeting_room_bot/telegram/`**:
+  - 실모드(Real Groupware Integration) 및 Mock 모드를 상황에 맞게 자동 감지/전환하는 구조 완성
+  - 회의실 예약 현황 당일/미래 시간 필터링, 정밀 상태 계산(사용 중, 예약 대기, 빈 방 등) 및 사용자 인터페이스 개선
+  - 즐겨찾기 회의실/자산 등록·조회 및 계정 연동 안내 대화 흐름 구현
+
+### 🧪 단위 테스트 Suite 대폭 확장 (154 Passed)
+- `tests/` 하위 테스트 17개 파일로 확장 및 154개 모든 단위 테스트 자동화 검증 완료:
+  - 계정 연동 및 로컬호스트 검증 (`test_account_link.py`, `test_account_link_localhost.py`)
+  - 세션 인증 테스트 (`test_auth_session.py`)
+  - 실모드 인증 및 대화 흐름 테스트 (`test_real_mode_auth_flow.py`)
+  - 당일 범위/경계 조건 회의실 상태 계산 검증 (`test_precise_room_status.py`, `test_today_boundary_room_status.py`, `test_room_detail_today_filter.py`)
+  - 안전 수정 및 예외 처리 테스트 (`test_bugs_safe_edit_and_next_res.py`, `test_flow_entry_state.py`)
+
+---
+
+## [v0.1.0-alpha] - 2026-08-11
 
 ### 🤖 텔레그램 봇 (Telegram Bot) 대화형 인터페이스 추가
 - `python-telegram-bot` (v22+) 대화형(Interactive) 키보드 및 ConversationHandler 상태 기반 대화 흐름 구축
@@ -35,10 +66,6 @@
 
 ### ✅ 테스트 자동화 (Test Suite) 확장
 - 전체 단위 테스트 suite 68개 통과 (`pytest` 실행 결과 68 passed)
-  - `tests/test_telegram_bot.py`: 텔레그램 봇 핸들러 및 대화 흐름 테스트
-  - `tests/test_favorites.py`: 즐겨찾기 CRUD 테스트
-  - `tests/test_availability_service.py`: 가용 시간 계산 정확도 검증 테스트
-  - `tests/test_meeting_room_service.py`: 회의실 서비스 통합 테스트
 
 ### ⚙️ 의존성 및 프로젝트 환경
 - `requirements.txt`: `python-telegram-bot>=22.0`, `python-dotenv>=1.0.0` 추가
