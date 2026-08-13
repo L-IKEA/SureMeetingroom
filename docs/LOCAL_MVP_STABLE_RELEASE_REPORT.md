@@ -56,13 +56,13 @@
 
 ## 5. Local MVP vs Production Readiness 구별
 
-| 구분 | Local MVP 1차 안정 버전 (`v0.1-local-mvp`) | 차기 Production 배포 단계 (Next Stage) |
+| 구분 | Local MVP 1차 안정 버전 (`v0.1-local-mvp`) | 차기 검토 대상 (Next Stage) |
 | :--- | :--- | :--- |
-| **목적** | 핵심 조회/인증 흐름 검증 및 회귀 안정성 확정 | 실제 운영 환경 공개 및 안정적 배포 |
-| **도메인/주소** | `http://localhost:8000` | 퍼블릭 HTTPS 도메인 + Reverse Proxy |
-| **세션 저장소** | 프로세스 내 인메모리 (`UserSessionManager`) | Redis / RDBMS 기반 persistent session store |
-| **데이터 저장소** | Local JSON File (`data/favorites.json`) | RDBMS (PostgreSQL/MySQL 등) |
-| **접근 제어** | 로컬 테스트 전체 허용 | 운영 허용 사용자 정책 (Allowlist / OAuth2) |
+| **목적** | 핵심 조회/인증 흐름 검증 및 회귀 안정성 확정 | 실제 운영 환경 공개 및 안정적 배포 검토 |
+| **도메인/주소** | `http://localhost:8000` | 외부 HTTPS endpoint 및 배포 방식 검토 |
+| **세션 저장소** | 프로세스 내 인메모리 (`UserSessionManager`) | Persistent session store 검토 (Redis / DB 등) |
+| **데이터 저장소** | Local JSON File (`data/favorites.json`) | 운영용 persistent data store 검토 (RDBMS 등) |
+| **접근 제어** | 로컬 테스트 전체 허용 | 운영 사용자 접근 제어 / 허용 사용자 정책 검토 |
 
 ---
 
@@ -134,12 +134,12 @@ git add docs/LOCAL_MVP_ARCHITECTURE.md
 git add docs/LOCAL_MVP_STABLE_RELEASE_REPORT.md
 git add tests/test_multi_user_isolation.py
 git commit -m "feat: complete local meeting room bot MVP"
-git tag v0.1-local-mvp
+git tag -f v0.1-local-mvp
 ```
 
 ---
 
-## 9. Local MVP 환경 실행 가이드
+## 9. Local MVP 실행 및 Account Linking 테스트 절차
 
 1. **환경변수 작성 (`.env`)**:
    ```env
@@ -147,10 +147,14 @@ git tag v0.1-local-mvp
    TELEGRAM_DATA_MODE=real
    ACCOUNT_LINK_BASE_URL=http://localhost:8000
    ```
-2. **통합 실행 스크립트 실행**:
+2. **통합 앱 실행**:
    ```bash
    python scripts/run_local_app.py
    ```
-3. **Telegram 접속 및 로그인**:
+3. **Telegram 접속 및 테스트 수순**:
    - Telegram 앱에서 `/start` 입력.
-   - `[🔐 회사 계정 연결]` 클릭 후 PC 브라우저에서 계정 연결 수행.
+   - 조회 기능(예: `[🟢 지금 빈 회의실]`) 선택.
+   - 계정 연결이 필요한 경우 `🔐 그룹웨어 계정 연결이 필요합니다.` 화면 및 DEV 토큰 안내 확인.
+   - 봇 실행 터미널 로그에 출력된 `http://localhost:8000/link/<token>` URL 확인.
+   - 동일한 PC 웹 브라우저에서 해당 URL 접속 후 그룹웨어 로그인 진행.
+   - 로그인 완료 메시지 확인 후 Telegram 앱으로 돌아와 조회 기능 이용.

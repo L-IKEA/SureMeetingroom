@@ -57,24 +57,25 @@ pip install -r requirements.txt
 ### 2. 환경 변수 설정 (`.env`)
 ```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-GROUPWARE_USER_ID=your_id
-GROUPWARE_PASSWORD=your_password
-ACCOUNT_LINK_SERVER_PORT=8080
+TELEGRAM_DATA_MODE=real
+ACCOUNT_LINK_BASE_URL=http://localhost:8000
 ```
 
 ---
 
-## 🏃 실행 가이드
+## 🏃 실행 가이드 및 Account Linking 테스트 절차
 
-### 로컬 통합 앱 실행 (계정 연동 서버 + 텔레그램 봇)
+### 1. 로컬 통합 앱 실행 (계정 연동 서버 + 텔레그램 봇)
 ```bash
 python scripts/run_local_app.py
 ```
 
-### 텔레그램 봇 단독 실행
-```bash
-python scripts/run_telegram_bot.py
-```
+### 2. 텔레그램 계정 연동 및 조회 수순
+1. Telegram 앱에서 `/start` 입력 후 조회 기능(예: `[🟢 지금 빈 회의실]`) 선택.
+2. 미인증 유저는 `🔐 그룹웨어 계정 연결이 필요합니다.` 및 DEV 토큰 생성 안내 수신.
+3. 앱 실행 터미널 로그에 출력된 `http://localhost:8000/link/<token>` URL 확인.
+4. 동일 PC 웹 브라우저에서 해당 URL 접속 후 그룹웨어 계정 로그인 진행.
+5. Telegram 앱으로 돌아가 회의실 조회 및 즐겨찾기 기능 사용.
 
 ---
 
@@ -83,7 +84,7 @@ python scripts/run_telegram_bot.py
 ```bash
 pytest
 ```
-*(현재 154개 단위 테스트 통과)*
+*(현재 157개 단위 테스트 통과)*
 
 ---
 
