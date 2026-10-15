@@ -15,6 +15,11 @@ from meeting_room_bot.providers.base import (
     QueryStatus,
 )
 from meeting_room_bot.providers.mock_provider import MockMeetingRoomProvider
+from meeting_room_bot.utils.date_utils import (
+    get_seoul_today_str,
+    get_seoul_tomorrow_str,
+    resolve_date_str,
+)
 from meeting_room_bot.telegram.keyboards import (
     expired_keyboard,
     fav_add_asset_keyboard,
@@ -255,7 +260,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
                 return
 
-            user_state_mgr.update_state(user_id, last_menu="when_time", date="2026-08-11")
+            user_state_mgr.update_state(user_id, last_menu="when_time", date=get_seoul_today_str())
             await safe_edit_message_text(query, "시작 시간을 선택하세요.", reply_markup=when_time_keyboard())
             return
 
@@ -319,7 +324,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_state_mgr.update_state(user_id, scope=target_scope)
 
             if "when" in last_menu:
-                date_val = state.get("date", "2026-08-11")
+                date_val = resolve_date_str(state.get("date"))
                 time_val = state.get("time", "14:00")
                 dur_val = state.get("duration", 60)
 
@@ -394,7 +399,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
                 return
 
-            date_val = "2026-08-11" if data == CB_DATE_TODAY else "2026-08-12"
+            date_val = get_seoul_today_str() if data == CB_DATE_TODAY else get_seoul_tomorrow_str()
             user_state_mgr.update_state(user_id, date=date_val, last_menu="when_time")
             await safe_edit_message_text(query, "시작 시간을 선택하세요.", reply_markup=when_time_keyboard())
             return
@@ -426,7 +431,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dur_val = int(data.replace(CB_DUR_PREFIX, ""))
             user_state_mgr.update_state(user_id, duration=dur_val, last_menu="when", scope="fav")
 
-            date_val = state.get("date", "2026-08-11")
+            date_val = resolve_date_str(state.get("date"))
             time_val = state.get("time", "14:00")
 
             res = provider.get_available_rooms_at(

@@ -333,7 +333,7 @@ class TestCoreDependencyDecoupling:
 
     def test_all_core_layers_have_zero_telegram_dependencies(self):
         """Verify auth, favorites, groupware, models, providers, services have ZERO telegram imports."""
-        core_packages = ["auth", "favorites", "groupware", "models", "providers", "services"]
+        core_packages = ["auth", "favorites", "groupware", "models", "providers", "services", "utils"]
         violating_imports = []
 
         for pkg in core_packages:

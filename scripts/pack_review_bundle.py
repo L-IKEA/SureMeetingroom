@@ -10,18 +10,20 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase1_final"
+HISTORY_SUBDIR = "v0.2_pre_phase2_datefix"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase1_complete_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_pre_phase2_datefix_review.zip"
 BASE_TAG = "v0.1-local-mvp"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase1_final/)
+    # Manifest and Diff (stored in review_bundles/v0.2_pre_phase2_datefix/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
 
-    # Changed Source Files (v0.2 Phase 1)
+    # Changed Source Files (v0.2 & Date Fix)
+    ("src/meeting_room_bot/utils/date_utils.py", "src/meeting_room_bot/utils/date_utils.py"),
+    ("src/meeting_room_bot/utils/__init__.py", "src/meeting_room_bot/utils/__init__.py"),
     ("src/meeting_room_bot/models/user_key.py", "src/meeting_room_bot/models/user_key.py"),
     ("src/meeting_room_bot/models/__init__.py", "src/meeting_room_bot/models/__init__.py"),
     ("src/meeting_room_bot/providers/mock_data.py", "src/meeting_room_bot/providers/mock_data.py"),
@@ -38,7 +40,8 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
     ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
 
-    # Changed Test Files
+    # Changed / Added Test Files
+    ("tests/test_dynamic_date_handling.py", "tests/test_dynamic_date_handling.py"),
     ("tests/test_favorites.py", "tests/test_favorites.py"),
     ("tests/test_platform_abstraction.py", "tests/test_platform_abstraction.py"),
 
@@ -77,15 +80,11 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
     ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
     ("pytest.ini", "pytest.ini"),
+    ("requirements.txt", "requirements.txt"),
 ]
 
 # Changed files that are deliberately excluded with justification
-EXCLUDED_CHANGED_FILES = {
-    # Old flat bundle artifacts that are replaced by the historized directory review_bundles/v0.2_phase1_final/
-    "review_bundles/REVIEW_BUNDLE_MANIFEST.md": "Replaced by historized manifest in review_bundles/v0.2_phase1_final/",
-    "review_bundles/REVIEW_GIT_DIFF.patch": "Replaced by historized patch in review_bundles/v0.2_phase1_final/",
-    "review_bundles/suremeetingroom_v0.2_phase1_final_review.zip": "Obsolete predecessor zip artifact replaced by suremeetingroom_v0.2_phase1_complete_review.zip",
-}
+EXCLUDED_CHANGED_FILES = {}
 
 # Exclusion / Safety check patterns
 FORBIDDEN_NAME_PATTERNS = [
@@ -141,7 +140,7 @@ def verify_changed_files_consistency():
 
     unaccounted = []
     for cf in changed_files:
-        if cf.startswith(f"review_bundles/{HISTORY_SUBDIR}"):
+        if cf.startswith("review_bundles/"):
             continue
         if cf in bundle_rel_paths or cf in EXCLUDED_CHANGED_FILES:
             continue
@@ -163,6 +162,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_dynamic_date_handling.py",
             "tests/test_platform_abstraction.py",
             "tests/test_auth_session.py",
             "tests/test_favorites.py",

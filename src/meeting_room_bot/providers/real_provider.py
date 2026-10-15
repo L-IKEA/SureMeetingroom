@@ -18,6 +18,7 @@ from meeting_room_bot.providers.base import (
     QueryStatus,
 )
 from meeting_room_bot.services.meeting_room_service import MeetingRoomService
+from meeting_room_bot.utils.date_utils import resolve_date_str
 
 logger = logging.getLogger(__name__)
 SEOUL_TZ = timezone(timedelta(hours=9))
@@ -181,10 +182,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
         try:
-            if date_str in ("today", "2026-08-11"):
-                date_str = "2026-08-11"
-            elif date_str in ("tomorrow", "2026-08-12"):
-                date_str = "2026-08-12"
+            date_str = resolve_date_str(date_str)
 
             st_hour, st_min = map(int, start_time.split(":"))
             dt_base = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=SEOUL_TZ)
