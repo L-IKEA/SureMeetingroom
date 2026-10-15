@@ -17,9 +17,8 @@ class FavoriteService:
     - Platform adapters must explicitly pass UserKey (e.g. UserKey("telegram", ...), UserKey("kakao", ...)).
     """
 
-    def __init__(self, repo: FavoriteRepository, meeting_room_service: Optional[Any] = None):
+    def __init__(self, repo: FavoriteRepository):
         self.repo = repo
-        self.meeting_room_service = meeting_room_service
 
     def get_favorites(self, user_id: Union[UserKey, str]) -> List[Favorite]:
         """Get list of all Favorite objects for a user."""
@@ -52,20 +51,21 @@ class FavoriteService:
     def get_favorite_rooms(
         self,
         user_id: Union[UserKey, str],
-        meeting_room_service: Optional[Any] = None,
+        meeting_room_service: Any,
     ) -> List[Tuple[Asset, Room]]:
         """Expand user's asset and room favorites into actual Room objects, removing duplicates.
 
         If user has 0 favorites, returns empty list [].
-        Accepts optional meeting_room_service per-call to remain completely stateless across concurrent users.
+        meeting_room_service is required per-call to remain completely stateless across concurrent users.
         """
         uf = self.repo.get_user_favorites(user_id)
         if uf.is_empty():
             return []
 
-        svc = meeting_room_service or self.meeting_room_service
-        if svc is None:
-            return []
+        if meeting_room_service is None:
+            raise ValueError("meeting_room_service must be provided to resolve favorite rooms statelessly")
+
+        svc = meeting_room_service
 
         # Map room_id -> (Asset, Room) for deduplication
         resolved_map: Dict[int, Tuple[Asset, Room]] = {}

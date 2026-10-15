@@ -1,5 +1,4 @@
-"""Platform-independent User Identity Key model (Channel Identity)."""
-
+import re
 from dataclasses import dataclass
 from typing import Union
 
@@ -26,6 +25,12 @@ class UserKey:
         canon_platform = self.platform.strip().lower()
         if not canon_platform:
             raise ValueError("platform must not be empty")
+        if ":" in canon_platform:
+            raise ValueError(f"platform must not contain ':', got '{canon_platform}'")
+        if not re.match(r"^[a-z0-9_-]+$", canon_platform):
+            raise ValueError(
+                f"platform contains invalid characters (only lowercase alphanumeric, '_', '-' allowed): '{canon_platform}'"
+            )
 
         if self.platform_user_id is None:
             raise ValueError("platform_user_id must not be None")

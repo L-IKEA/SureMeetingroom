@@ -205,13 +205,13 @@ class TestFavoriteRepositoryAndService:
 
     def test_12_asset_and_room_deduplication(self, temp_repo, mock_meeting_service):
         """12. Asset + Room favorite de-duplication in get_favorite_rooms."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
+        fav_service = FavoriteService(repo=temp_repo)
         # Asset 50 contains rooms 130 and 131.
         # Add both Asset 50 AND Room 130 explicitly.
         fav_service.add_asset("userA", 50)
         fav_service.add_room("userA", 130)
 
-        favorite_rooms = fav_service.get_favorite_rooms("userA")
+        favorite_rooms = fav_service.get_favorite_rooms("userA", meeting_room_service=mock_meeting_service)
         room_ids = [r.id for _, r in favorite_rooms]
 
         # Room 130 should appear only ONCE
@@ -221,10 +221,10 @@ class TestFavoriteRepositoryAndService:
 
     def test_13_asset_room_expansion(self, temp_repo, mock_meeting_service):
         """13. Favoriting an asset expands to all rooms in that asset."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
+        fav_service = FavoriteService(repo=temp_repo)
         fav_service.add_asset("userA", 50)
 
-        favorite_rooms = fav_service.get_favorite_rooms("userA")
+        favorite_rooms = fav_service.get_favorite_rooms("userA", meeting_room_service=mock_meeting_service)
         room_ids = [r.id for _, r in favorite_rooms]
 
         assert 130 in room_ids
@@ -232,10 +232,10 @@ class TestFavoriteRepositoryAndService:
 
     def test_14_single_room_favorite(self, temp_repo, mock_meeting_service):
         """14. Favoriting a single room resolves correctly."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
+        fav_service = FavoriteService(repo=temp_repo)
         fav_service.add_room("userA", 140)  # Room 140 in Asset 60
 
-        favorite_rooms = fav_service.get_favorite_rooms("userA")
+        favorite_rooms = fav_service.get_favorite_rooms("userA", meeting_room_service=mock_meeting_service)
         assert len(favorite_rooms) == 1
         asset, room = favorite_rooms[0]
         assert asset.id == 60
@@ -243,21 +243,20 @@ class TestFavoriteRepositoryAndService:
 
     def test_15_user_with_zero_favorites(self, temp_repo, mock_meeting_service):
         """15. User with 0 favorites returns empty list."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
-        result = fav_service.get_favorite_rooms("user_zero")
+        fav_service = FavoriteService(repo=temp_repo)
+        result = fav_service.get_favorite_rooms("user_zero", meeting_room_service=mock_meeting_service)
 
         assert result == []
 
     def test_16_get_available_favorite_rooms_now(self, temp_repo, mock_meeting_service):
         """16. get_available_favorite_rooms_now returns available rooms within user's favorites."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
+        fav_service = FavoriteService(repo=temp_repo)
         fav_service.add_asset("userA", 50)  # Contains room 130 (occupied at 10:00) & 131 (available)
 
         now = make_dt(10, 0)
         # We need real MeetingRoomService to test integration method
         meeting_service = MeetingRoomService(mock_meeting_service.client)
         meeting_service.get_meeting_assets = mock_meeting_service.get_meeting_assets
-        fav_service.meeting_room_service = meeting_service
 
         avail = meeting_service.get_available_favorite_rooms_now("userA", fav_service, now=now)
 
@@ -266,7 +265,7 @@ class TestFavoriteRepositoryAndService:
 
     def test_17_get_available_favorite_rooms_at(self, temp_repo, mock_meeting_service):
         """17. get_available_favorite_rooms_at returns available rooms for specific time slot."""
-        fav_service = FavoriteService(repo=temp_repo, meeting_room_service=mock_meeting_service)
+        fav_service = FavoriteService(repo=temp_repo)
         fav_service.add_asset("userA", 50)
 
         req_start = make_dt(14, 0)
@@ -274,7 +273,6 @@ class TestFavoriteRepositoryAndService:
 
         meeting_service = MeetingRoomService(mock_meeting_service.client)
         meeting_service.get_meeting_assets = mock_meeting_service.get_meeting_assets
-        fav_service.meeting_room_service = meeting_service
 
         results = meeting_service.get_available_favorite_rooms_at("userA", fav_service, req_start, req_end)
 

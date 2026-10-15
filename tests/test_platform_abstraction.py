@@ -182,6 +182,45 @@ class TestUserKeyModel:
         assert store[k2] == "session_val"
         assert store[k3] == "session_val"
 
+    def test_user_key_colon_in_platform_rejected(self):
+        """Platform must not contain colons (:) to prevent serialization ambiguity."""
+        with pytest.raises(ValueError, match="must not contain ':'"):
+            UserKey("foo:bar", "123")
+        with pytest.raises(ValueError, match="must not contain ':'"):
+            UserKey("telegram:sub", "123")
+
+    def test_user_key_platform_character_validation(self):
+        """Platform must contain only valid characters (alphanumeric, underscore, hyphen)."""
+        with pytest.raises(ValueError, match="platform contains invalid characters"):
+            UserKey("telegram!", "123")
+        with pytest.raises(ValueError, match="platform contains invalid characters"):
+            UserKey("my platform", "123")
+
+        # Valid platforms must succeed
+        uk1 = UserKey("telegram", "123")
+        uk2 = UserKey("kakao", "123")
+        uk3 = UserKey("future_platform", "123")
+        uk4 = UserKey("teams-bot_1", "123")
+        assert uk1.platform == "telegram"
+        assert uk2.platform == "kakao"
+        assert uk3.platform == "future_platform"
+        assert uk4.platform == "teams-bot_1"
+
+    def test_user_key_serialization_round_trip(self):
+        """to_string() and from_string() must preserve exact equality round-trip."""
+        test_keys = [
+            UserKey("telegram", "123"),
+            UserKey("kakao", "user_9988"),
+            UserKey("future_platform", "sub_id:with:colons"),
+            UserKey("teams-bot", "dept_room_5"),
+        ]
+        for uk in test_keys:
+            serialized = uk.to_string()
+            recovered = UserKey.from_string(serialized)
+            assert recovered == uk
+            assert hash(recovered) == hash(uk)
+            assert str(recovered) == serialized
+
 
 class TestNamespaceIsolation:
     """Verify Telegram and Kakao users with identical IDs do not collide."""
@@ -388,8 +427,8 @@ class TestRealProviderConcurrencyAndStatelessness:
 
         # Shared singleton FavoriteService and RealMeetingRoomProvider
         fav_service = FavoriteService(repo=repo)
-        # Verify initial meeting_room_service is None
-        assert fav_service.meeting_room_service is None
+        # Verify fav_service is completely stateless
+        assert not hasattr(fav_service, "meeting_room_service")
 
         provider = RealMeetingRoomProvider(session_mgr=session_mgr, favorite_service=fav_service)
 
@@ -398,30 +437,47 @@ class TestRealProviderConcurrencyAndStatelessness:
         fav_a_1 = provider.get_favorites(uk_a)
         assert fav_a_1.status == QueryStatus.SUCCESS
         assert "🚪 회의실 5-1" in fav_a_1.data["rooms"]
-        # Verify fav_service did not retain client_a in mutable instance state
-        assert fav_service.meeting_room_service is None
+        # Verify fav_service does not hold meeting_room_service attribute
+        assert not hasattr(fav_service, "meeting_room_service")
 
         # 2. User B queries available rooms
         res_b = provider.get_available_rooms_now(uk_b, scope="fav")
         assert res_b.status == QueryStatus.SUCCESS
-        assert fav_service.meeting_room_service is None
+        assert not hasattr(fav_service, "meeting_room_service")
 
         # 3. User A queries available rooms again
         res_a = provider.get_available_rooms_now(uk_a, scope="fav")
         assert res_a.status == QueryStatus.SUCCESS
-        assert fav_service.meeting_room_service is None
+        assert not hasattr(fav_service, "meeting_room_service")
 
         # 4. User B queries favorites
         fav_b = provider.get_favorites(uk_b)
         assert fav_b.status == QueryStatus.SUCCESS
         assert "🚪 회의실 8-1" in fav_b.data["rooms"]
-        assert fav_service.meeting_room_service is None
+        assert not hasattr(fav_service, "meeting_room_service")
 
         # Verify Client Isolation: Client A was never called for B's asset/room, and vice versa
         for call_args in client_a.get_items.call_args_list:
             assert call_args[0][0] != 80  # Client A was never called for Asset 80
         for call_args in client_b.get_items.call_args_list:
             assert call_args[0][0] != 50  # Client B was never called for Asset 50
+
+    def test_favorite_service_complete_statelessness(self, tmp_path):
+        """FavoriteService must have zero client/meeting_room_service state and require per-call service."""
+        from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
+        repo = JsonFavoriteRepository(str(tmp_path / "fav.json"))
+        fav_svc = FavoriteService(repo=repo)
+
+        # 1. Verify no meeting_room_service attribute on FavoriteService
+        assert not hasattr(fav_svc, "meeting_room_service")
+
+        # 2. Add asset favorite
+        uk = UserKey("telegram", "u100")
+        fav_svc.add_asset(uk, 50)
+
+        # 3. get_favorite_rooms without meeting_room_service must raise ValueError
+        with pytest.raises(ValueError, match="meeting_room_service must be provided"):
+            fav_svc.get_favorite_rooms(uk, meeting_room_service=None)
 
 
 class TestAccountLinkingIntegrationWithUserKey:

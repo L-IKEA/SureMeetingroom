@@ -33,12 +33,14 @@ v0.1-local-mvp는 로컬 단일 인스턴스 환경에서 Telegram Bot 및 Group
 | `src/meeting_room_bot/auth/session_manager.py` | **수정** | `UserKey` 플랫폼 격리 및 레거시 문자열 ID와의 양방향 호환 어댑터 구현 |
 | `src/meeting_room_bot/favorites/repository.py` | **수정** | `FavoriteRepository` 인터페이스에 `Union[UserKey, str]` Transition Layer 명시 |
 | `src/meeting_room_bot/favorites/json_repository.py` | **수정** | `_resolve_storage_key` 헬퍼를 통한 `UserKey` 및 레거시 JSON 키 호환 처리 |
-| `src/meeting_room_bot/favorites/service.py` | **수정** | `get_favorite_rooms` 호출 시 service 매개변수 수용으로 완전 Stateless화 |
+| `src/meeting_room_bot/favorites/service.py` | **수정** | `__init__`에서 `meeting_room_service` 제거 및 `get_favorite_rooms` 호출별 서비스 전달 필수화로 완전 Stateless화 |
 | `src/meeting_room_bot/account_link/token_service.py` | **수정** | 1회성 토큰 생성 시 `UserKey` 수용 및 직렬화 바인딩 |
 | `src/meeting_room_bot/telegram/handlers.py` | **수정** | `update.effective_user.id`를 명시적 `UserKey("telegram", ...)`로 변환 후 Core에 전달 |
-| `tests/test_platform_abstraction.py` | **신규 생성** | UserKey 정규화/검증, 동시성 격리, Account Linking E2E, Core 무종속성 등 23개 단위 테스트 추가 |
+| `scripts/pack_review_bundle.py` | **신규 생성** | Review Bundle 자동 패키징, 정합성 검증, 독립 임시 환경 내 Self-Test 자동화 스크립트 |
+| `tests/test_favorites.py` | **수정** | Stateless FavoriteService 인터페이스에 맞춰 per-call 서비스 전달로 갱신 (17개 테스트) |
+| `tests/test_platform_abstraction.py` | **신규 생성** | UserKey 콜론/문자 검증, round-trip, 정규화, 동시성/Statelessness, Account Linking E2E 등 27개 단위 테스트 |
 | `docs/V0_2_ARCHITECTURE_PLAN.md` | **수정** | UserKey 채널 식별자 정제, Ingress/Reverse Proxy 검토 표현 동기화 |
-| `docs/V0_2_PHASE1_REPORT.md` | **수정** | Phase 1 Final Hardening 보완 사항 및 180개 테스트 통과 결과 반영 |
+| `docs/V0_2_PHASE1_REPORT.md` | **수정** | Phase 1 Complete 보완 사항 및 184개 테스트 통과 결과 반영 |
 
 ---
 
@@ -82,14 +84,19 @@ class UserKey:
 ```
 
 - **Canonicalization**: `UserKey(" Telegram ", 123)` 생성 시 자동으로 `UserKey("telegram", "123")`로 정규화되어 hash/equality 안정성이 100% 보장됩니다.
-- **Strict Validation**: 빈 문자열(`""`, `"   "`)이나 `None` 입력 시 즉시 `ValueError`를 발생시켜 잘못된 식별자 생성을 원천 차단합니다.
+- **Strict Validation**: 
+  - 플랫폼명에 콜론(`:`) 포함 시 `ValueError` 발생 (`to_string()`과 `from_string()`의 일대일 round-trip 분해 보장).
+  - 플랫폼명에 허용되지 않는 특수문자 차단 (`^[a-z0-9_-]+$`, 영문 소문자/숫자/언더스코어/하이픈만 허용).
+  - 빈 문자열(`""`, `"   "`)이나 `None` 입력 시 즉시 `ValueError`를 발생시켜 잘못된 식별자 생성을 원천 차단.
 
-### 3.2 RealMeetingRoomProvider 공유 mutable 상태 완전 제거
-- **기존 문제점**: `RealMeetingRoomProvider._get_service()`에서 싱글톤 `self.favorite_service.meeting_room_service = service`로 사용자별 서비스를 할당하여, 동시 요청 시 사용자 A의 요청에 사용자 B의 GroupwareClient가 오염될 수 있는 동시성 결함이 존재했습니다.
-- **해결 방안 (Statelessness)**:
-  - `FavoriteService.get_favorite_rooms(user_id, meeting_room_service=None)`로 시그니처를 개선하여 호출 시점에 필요한 서비스를 명시적으로 전달받도록 변경.
-  - `RealMeetingRoomProvider`의 `_get_service()`에서 mutable field 할당 로직을 완전 삭제.
-  - 다중 사용자 교차 호출 동시성 테스트(`test_concurrent_users_no_shared_mutable_meeting_room_service`)를 통해 상호 클라이언트 오염이 0%임을 검증 완료.
+### 3.2 FavoriteService 완전 Stateless화 및 공유 mutable 상태 제거
+- **기존 문제점**: `RealMeetingRoomProvider._get_service()`에서 싱글톤 `self.favorite_service.meeting_room_service = service`로 사용자별 서비스를 할당하여, 동시 요청 시 사용자 A의 요청에 사용자 B의 GroupwareClient가 오염될 수 있는 동시성 결함이 존재했습니다. 또한 `FavoriteService.__init__`에 레거시 `meeting_room_service` 인스턴스 변수가 남아 있었습니다.
+- **완전 Stateless화 완료**:
+  - `FavoriteService.__init__(repo)`만 남기고 `meeting_room_service` 인스턴스 속성을 완전 제거.
+  - `FavoriteService.get_favorite_rooms(user_id, meeting_room_service)`에서 호출별 per-call service 전달을 필수화(`None` 전달 시 `ValueError`).
+  - `RealMeetingRoomProvider` 및 `MeetingRoomService`에서 호출 시마다 사용자 인스턴스를 명시적으로 전달.
+  - `MeetingRoomService`의 `get_available_favorite_rooms_now` 및 `get_available_favorite_rooms_at` 파라미터 타입을 `user_id: Union[UserKey, str]`로 정합성 보완.
+  - 다중 사용자 교차 호출 동시성 테스트(`test_concurrent_users_no_shared_mutable_meeting_room_service`) 및 완전 무상태성 검증 테스트(`test_favorite_service_complete_statelessness`) 통과.
 
 ### 3.3 MockProvider 및 MockMeetingRoomData 네임스페이스 보존
 - `MockMeetingRoomProvider`가 UserKey 수신 시 `user_id.platform_user_id`로 플랫폼을 절삭하던 문제를 해결하여 `user_id.to_string()`을 사용하도록 수정.
@@ -98,6 +105,10 @@ class UserKey:
 ### 3.4 Account Linking E2E 검증 완료
 - `account_link/app.py` 1-hop consumer와의 연동을 검증하는 통합 테스트(`test_telegram_user_key_account_linking_integration`) 추가.
 - Telegram UserKey → 토큰 발급 → HTTP POST 로그인 → 세션 등록 → Telegram UserKey 조회 흐름이 완벽히 동작하며 Kakao와 네임스페이스가 격리됨을 입증.
+
+### 3.5 Runtime Closure 패키징 및 Standalone Self-Test 검증
+- Review Bundle 생성 시 5개 핵심 테스트가 단독 실행(`pytest`)될 수 있도록 최소 런타임 종속성(`availability_service.py`, `room_status_service.py`, `pytest.ini`, 템플릿 등)을 정밀 포함.
+- 번들 패키징 스크립트(`scripts/pack_review_bundle.py`)가 임시 디렉터리에 번들을 추출하여 **57개 테스트의 독립 실행을 100% 자가 검증(Self-Test)**하도록 개선.
 
 ---
 
@@ -127,6 +138,7 @@ class UserKey:
 
 ## 6. 테스트 결과
 
+### 6.1 전체 저장소 회귀 테스트
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0
@@ -134,30 +146,40 @@ rootdir: C:\Users\suresoft\Desktop\priv\30.vibe\06.meetingroom\suremeetingroom-b
 configfile: pytest.ini
 testpaths: tests
 plugins: anyio-4.13.0
-collected 180 items
+collected 184 items
 
 tests\test_account_link.py .............                                 [  7%]
 tests\test_account_link_localhost.py ......                              [ 10%]
 tests\test_auth_session.py ....                                          [ 12%]
-tests\test_availability_service.py .............                         [ 20%]
-tests\test_bugs_safe_edit_and_next_res.py ........                       [ 24%]
-tests\test_client.py .....                                               [ 27%]
-tests\test_favorites.py .................                                [ 36%]
-tests\test_flow_entry_state.py ......                                    [ 40%]
-tests\test_meeting_room_service.py .......                               [ 43%]
-tests\test_multi_user_isolation.py ...                                   [ 45%]
-tests\test_platform_abstraction.py .......................               [ 58%]
-tests\test_precise_room_status.py .......                                [ 62%]
-tests\test_providers.py ......                                           [ 65%]
+tests\test_availability_service.py .............                         [ 19%]
+tests\test_bugs_safe_edit_and_next_res.py ........                       [ 23%]
+tests\test_client.py .....                                               [ 26%]
+tests\test_favorites.py .................                                [ 35%]
+tests\test_flow_entry_state.py ......                                    [ 39%]
+tests\test_meeting_room_service.py .......                               [ 42%]
+tests\test_multi_user_isolation.py ...                                   [ 44%]
+tests\test_platform_abstraction.py ...........................           [ 59%]
+tests\test_precise_room_status.py .......                                [ 63%]
+tests\test_providers.py ......                                           [ 66%]
 tests\test_real_favorites.py ..........                                  [ 71%]
-tests\test_real_mode_auth_flow.py ........                               [ 75%]
-tests\test_room_detail_today_filter.py ......                            [ 78%]
-tests\test_room_status_attribute.py .....                                [ 81%]
-tests\test_room_status_service.py ...........                            [ 87%]
+tests\test_real_mode_auth_flow.py ........                               [ 76%]
+tests\test_room_detail_today_filter.py ......                            [ 79%]
+tests\test_room_status_attribute.py .....                                [ 82%]
+tests\test_room_status_service.py ...........                            [ 88%]
 tests\test_telegram_bot.py ...............                               [ 96%]
 tests\test_today_boundary_room_status.py .......                         [100%]
 
-============================= 180 passed in 1.80s =============================
+============================= 184 passed in 1.67s =============================
+```
+
+### 6.2 Standalone Review Bundle Self-Test (ZIP 단독 환경)
+```text
+============================= 57 passed in 1.63s ==============================
+```
+- **기존 테스트 157개**: 100% PASS (Zero Regression)
+- **Phase 1 전체 추가/수정 테스트 27개**: 100% PASS
+- **Review ZIP 단독 57개 테스트**: 100% PASS
+- **합계**: **184 passed, 0 failed, 0 skipped**
 ```
 
 - **기존 테스트**: 157개 100% 통과 (Failed: 0, Skipped: 0)

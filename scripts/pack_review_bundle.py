@@ -1,19 +1,26 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 1."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 1 Complete."""
 
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+HISTORY_SUBDIR = "v0.2_phase1_final"
+OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
+ZIP_FILENAME = "suremeetingroom_v0.2_phase1_complete_review.zip"
+BASE_TAG = "v0.1-local-mvp"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/)
-    ("review_bundles/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
-    ("review_bundles/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
+    # Manifest and Diff (stored in review_bundles/v0.2_phase1_final/)
+    (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
+    (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
+
     # Changed Source Files (v0.2 Phase 1)
     ("src/meeting_room_bot/models/user_key.py", "src/meeting_room_bot/models/user_key.py"),
     ("src/meeting_room_bot/models/__init__.py", "src/meeting_room_bot/models/__init__.py"),
@@ -27,26 +34,58 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
     ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
     ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
-    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
     ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
-    # Changed Test File
+    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+
+    # Changed Test Files
+    ("tests/test_favorites.py", "tests/test_favorites.py"),
     ("tests/test_platform_abstraction.py", "tests/test_platform_abstraction.py"),
+
     # Changed / Added Docs
     ("docs/V0_2_ARCHITECTURE_PLAN.md", "docs/V0_2_ARCHITECTURE_PLAN.md"),
     ("docs/V0_2_PHASE1_REPORT.md", "docs/V0_2_PHASE1_REPORT.md"),
-    # 1-Hop Direct Context Files
+
+    # 1-Hop Direct Context & Consumer Files
+    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
     ("src/meeting_room_bot/models/asset.py", "src/meeting_room_bot/models/asset.py"),
     ("src/meeting_room_bot/models/room.py", "src/meeting_room_bot/models/room.py"),
     ("src/meeting_room_bot/models/reservation.py", "src/meeting_room_bot/models/reservation.py"),
     ("src/meeting_room_bot/favorites/models.py", "src/meeting_room_bot/favorites/models.py"),
     ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
+
     # Directly Related Regression Tests
     ("tests/test_auth_session.py", "tests/test_auth_session.py"),
-    ("tests/test_favorites.py", "tests/test_favorites.py"),
     ("tests/test_providers.py", "tests/test_providers.py"),
     ("tests/test_multi_user_isolation.py", "tests/test_multi_user_isolation.py"),
+
+    # Runtime Closure (Required for Independent Test Execution)
+    ("src/meeting_room_bot/services/availability_service.py", "src/meeting_room_bot/services/availability_service.py"),
+    ("src/meeting_room_bot/services/room_status_service.py", "src/meeting_room_bot/services/room_status_service.py"),
+    ("src/meeting_room_bot/auth/models.py", "src/meeting_room_bot/auth/models.py"),
+    ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
+    ("src/meeting_room_bot/telegram/states.py", "src/meeting_room_bot/telegram/states.py"),
+    ("src/meeting_room_bot/__init__.py", "src/meeting_room_bot/__init__.py"),
+    ("src/meeting_room_bot/auth/__init__.py", "src/meeting_room_bot/auth/__init__.py"),
+    ("src/meeting_room_bot/favorites/__init__.py", "src/meeting_room_bot/favorites/__init__.py"),
+    ("src/meeting_room_bot/groupware/__init__.py", "src/meeting_room_bot/groupware/__init__.py"),
+    ("src/meeting_room_bot/providers/__init__.py", "src/meeting_room_bot/providers/__init__.py"),
+    ("src/meeting_room_bot/services/__init__.py", "src/meeting_room_bot/services/__init__.py"),
+    ("src/meeting_room_bot/telegram/__init__.py", "src/meeting_room_bot/telegram/__init__.py"),
+    ("src/meeting_room_bot/account_link/__init__.py", "src/meeting_room_bot/account_link/__init__.py"),
+    ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
+    ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
+    ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
+    ("pytest.ini", "pytest.ini"),
 ]
+
+# Changed files that are deliberately excluded with justification
+EXCLUDED_CHANGED_FILES = {
+    # Old flat bundle artifacts that are replaced by the historized directory review_bundles/v0.2_phase1_final/
+    "review_bundles/REVIEW_BUNDLE_MANIFEST.md": "Replaced by historized manifest in review_bundles/v0.2_phase1_final/",
+    "review_bundles/REVIEW_GIT_DIFF.patch": "Replaced by historized patch in review_bundles/v0.2_phase1_final/",
+    "review_bundles/suremeetingroom_v0.2_phase1_final_review.zip": "Obsolete predecessor zip artifact replaced by suremeetingroom_v0.2_phase1_complete_review.zip",
+}
 
 # Exclusion / Safety check patterns
 FORBIDDEN_NAME_PATTERNS = [
@@ -69,12 +108,10 @@ SECRET_CONTENT_PATTERNS = [
 
 def scan_file_safety(rel_path: str, abs_path: Path):
     """Scan file path and contents for accidental secret exposure."""
-    # Check forbidden filenames
     for pat in FORBIDDEN_NAME_PATTERNS:
         if re.search(pat, rel_path, re.IGNORECASE):
             raise ValueError(f"Forbidden file detected in bundle list: {rel_path} (matched {pat})")
 
-    # Check content for sensitive secrets
     try:
         content = abs_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
@@ -86,18 +123,87 @@ def scan_file_safety(rel_path: str, abs_path: Path):
             raise ValueError(f"Security violation: {label} detected in {rel_path}: {matches[:2]}")
 
 
+def verify_changed_files_consistency():
+    """Verify that every file changed since BASE_TAG is either in BUNDLE_FILES or EXCLUDED_CHANGED_FILES."""
+    try:
+        diff_out = subprocess.check_output(
+            ["git", "diff", "--name-only", BASE_TAG],
+            cwd=WORKSPACE_ROOT,
+            text=True,
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"WARNING: Could not run git diff to verify changed files: {e}", file=sys.stderr)
+        return
+
+    changed_files = [line.strip().replace("\\", "/") for line in diff_out.splitlines() if line.strip()]
+    bundle_rel_paths = {rel.replace("\\", "/") for rel, _ in BUNDLE_FILES}
+
+    unaccounted = []
+    for cf in changed_files:
+        if cf.startswith(f"review_bundles/{HISTORY_SUBDIR}"):
+            continue
+        if cf in bundle_rel_paths or cf in EXCLUDED_CHANGED_FILES:
+            continue
+        unaccounted.append(cf)
+
+    if unaccounted:
+        raise RuntimeError(
+            f"Changed files consistency check failed! The following changed files are missing from BUNDLE_FILES:\n"
+            + "\n".join(f"  - {f}" for f in unaccounted)
+        )
+    print(f"[OK] Changed Files consistency check passed ({len(changed_files)} changed files verified against BASE).")
+
+
+def run_standalone_bundle_self_test(zip_path: Path):
+    """Extract zip into isolated temp directory and run the bundled test suite."""
+    print("\n=== Running Standalone Review Bundle Self-Test ===")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        with zipfile.ZipFile(zip_path, mode="r") as zf:
+            zf.extractall(tmp_dir)
+
+        test_files = [
+            "tests/test_platform_abstraction.py",
+            "tests/test_auth_session.py",
+            "tests/test_favorites.py",
+            "tests/test_providers.py",
+            "tests/test_multi_user_isolation.py",
+        ]
+        cmd = [sys.executable, "-m", "pytest"] + test_files + ["-v"]
+        res = subprocess.run(cmd, cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8")
+        if res.returncode != 0:
+            print("Self-test FAILED in extracted bundle environment!", file=sys.stderr)
+            print("STDOUT:\n", res.stdout, file=sys.stderr)
+            print("STDERR:\n", res.stderr, file=sys.stderr)
+            raise RuntimeError(f"Review Bundle self-test failed with exit code {res.returncode}")
+
+        # Parse test count from output
+        match = re.search(r"(\d+)\s+passed", res.stdout)
+        passed_count = match.group(1) if match else "all"
+        print(f"[OK] Standalone Self-Test PASSED: {passed_count} tests executed cleanly within isolated bundle context.")
+
+
 def main():
-    output_dir = WORKSPACE_ROOT / "review_bundles"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = OUTPUT_DIR / ZIP_FILENAME
 
-    zip_filename = "suremeetingroom_v0.2_phase1_final_review.zip"
-    zip_path = output_dir / zip_filename
+    print(f"=== Creating Review Bundle: {ZIP_FILENAME} ===")
+    print(f"Base Tag / Commit: {BASE_TAG}")
+    print(f"History Output Directory: {OUTPUT_DIR}")
 
-    print(f"=== Creating Review Bundle: {zip_filename} ===")
-    print(f"Base Directory: {WORKSPACE_ROOT}")
-    print(f"Output Directory: {output_dir}")
+    # 1. Update UTF-8 patch in history dir
+    patch_path = OUTPUT_DIR / "REVIEW_GIT_DIFF.patch"
+    diff_bytes = subprocess.check_output(
+        ["git", "diff", BASE_TAG, "--", ".", ":(exclude)review_bundles"],
+        cwd=WORKSPACE_ROOT,
+    )
+    patch_path.write_bytes(diff_bytes)
+    print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, UTF-8)")
 
-    # Verify all files exist and are safe
+    # 2. Check changed files consistency
+    verify_changed_files_consistency()
+
+    # 3. Verify all files exist and are safe
     total_uncompressed_bytes = 0
     valid_files = []
 
@@ -115,26 +221,19 @@ def main():
     print(f"Total files to bundle: {len(valid_files)}")
     print(f"Total uncompressed size: {total_uncompressed_bytes:,} bytes ({total_uncompressed_bytes / 1024:.2f} KB)")
 
-    # Build ZIP archive
+    # 4. Build ZIP archive
     if zip_path.exists():
         zip_path.unlink()
 
     with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for rel_path, abs_path, _, arcname in valid_files:
-            # Store with normalized relative POSIX path inside the ZIP
             zf.write(abs_path, arcname=arcname.replace("\\", "/"))
 
     zip_size = zip_path.stat().st_size
     print(f"ZIP created successfully: {zip_path}")
     print(f"ZIP size: {zip_size:,} bytes ({zip_size / 1024:.2f} KB)")
 
-    # Clean up root copies if present
-    for cleanup_name in ["REVIEW_BUNDLE_MANIFEST.md", "REVIEW_GIT_DIFF.patch", zip_filename]:
-        root_file = WORKSPACE_ROOT / cleanup_name
-        if root_file.exists():
-            root_file.unlink()
-
-    # Verify ZIP integrity
+    # 5. Verify ZIP integrity
     with zipfile.ZipFile(zip_path, mode="r") as zf:
         test_res = zf.testzip()
         if test_res is not None:
@@ -142,15 +241,8 @@ def main():
         namelist = zf.namelist()
         print(f"ZIP integrity check PASSED ({len(namelist)} items in archive)")
 
-    # Verify extraction in temporary directory
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        with zipfile.ZipFile(zip_path, mode="r") as zf:
-            zf.extractall(tmp_dir)
-        extracted_files = [str(p.relative_to(tmp_dir)).replace("\\", "/") for p in Path(tmp_dir).rglob("*") if p.is_file()]
-        assert len(extracted_files) == len(BUNDLE_FILES), f"Extraction count mismatch: {len(extracted_files)} vs {len(BUNDLE_FILES)}"
-        assert "REVIEW_BUNDLE_MANIFEST.md" in extracted_files
-        assert "REVIEW_GIT_DIFF.patch" in extracted_files
-        print("Self-verification: Extraction and manifest validation PASSED.")
+    # 6. Run standalone self-test
+    run_standalone_bundle_self_test(zip_path)
 
     print("\n[SUCCESS] Review bundle ready.")
 
