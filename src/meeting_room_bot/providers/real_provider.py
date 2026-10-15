@@ -39,9 +39,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
         client = self.session_mgr.get_client(user_id)
         if not client or not client.is_authenticated:
             return None
-        service = MeetingRoomService(client)
-        self.favorite_service.meeting_room_service = service
-        return service
+        return MeetingRoomService(client)
 
     def check_authentication(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Check if user has an active authenticated Groupware session."""
@@ -90,7 +88,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
 
         try:
             if scope in ("fav", "favorites"):
-                fav_rooms = self.favorite_service.get_favorite_rooms(user_id)
+                fav_rooms = self.favorite_service.get_favorite_rooms(user_id, meeting_room_service=service)
                 if not fav_rooms:
                     return QueryResult(status=QueryStatus.NO_FAVORITES)
 
@@ -194,7 +192,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             end_dt = st_dt + timedelta(minutes=duration)
 
             if scope in ("fav", "favorites"):
-                fav_rooms = self.favorite_service.get_favorite_rooms(user_id)
+                fav_rooms = self.favorite_service.get_favorite_rooms(user_id, meeting_room_service=service)
                 if not fav_rooms:
                     return QueryResult(status=QueryStatus.NO_FAVORITES)
 
@@ -359,7 +357,11 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
-        fav_tuples = self.favorite_service.get_favorite_rooms(user_id)
+        service = self._get_service(user_id)
+        if not service:
+            return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
+
+        fav_tuples = self.favorite_service.get_favorite_rooms(user_id, meeting_room_service=service)
         asset_names = list({a.name for a, _ in fav_tuples})
         room_names = [f"🚪 {r.name}" for _, r in fav_tuples]
 

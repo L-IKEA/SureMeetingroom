@@ -19,6 +19,23 @@ class UserKey:
     platform: str
     platform_user_id: str
 
+    def __post_init__(self):
+        """Canonicalize and strictly validate platform and platform_user_id fields."""
+        if not isinstance(self.platform, str):
+            raise TypeError(f"platform must be a str, got {type(self.platform).__name__}")
+        canon_platform = self.platform.strip().lower()
+        if not canon_platform:
+            raise ValueError("platform must not be empty")
+
+        if self.platform_user_id is None:
+            raise ValueError("platform_user_id must not be None")
+        canon_user_id = str(self.platform_user_id).strip()
+        if not canon_user_id:
+            raise ValueError("platform_user_id must not be empty")
+
+        object.__setattr__(self, "platform", canon_platform)
+        object.__setattr__(self, "platform_user_id", canon_user_id)
+
     def to_string(self) -> str:
         """Serialize UserKey to standard string format: 'platform:platform_user_id'."""
         return f"{self.platform}:{self.platform_user_id}"

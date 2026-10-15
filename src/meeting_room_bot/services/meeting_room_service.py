@@ -359,7 +359,7 @@ class MeetingRoomService:
         else:
             now = now.astimezone(SEOUL_TZ)
 
-        fav_tuples = favorite_service.get_favorite_rooms(user_id)
+        fav_tuples = favorite_service.get_favorite_rooms(user_id, meeting_room_service=self)
         if not fav_tuples:
             return []
 
@@ -400,7 +400,7 @@ class MeetingRoomService:
 
         Returns empty list [] if user has no favorites.
         """
-        fav_tuples = favorite_service.get_favorite_rooms(user_id)
+        fav_tuples = favorite_service.get_favorite_rooms(user_id, meeting_room_service=self)
         if not fav_tuples:
             return []
 

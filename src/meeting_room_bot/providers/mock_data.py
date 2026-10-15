@@ -319,11 +319,9 @@ class MockMeetingRoomData:
 
     @staticmethod
     def has_favorites(user_id: Any) -> bool:
-        """Check if mock user has registered favorites."""
-        u_str = str(user_id)
-        if ":" in u_str:
-            u_str = u_str.split(":", 1)[1]
-        if u_str in ("no_fav_user", "empty", "no_fav"):
+        """Check if mock user has registered favorites, preserving platform namespace."""
+        u_str = user_id.to_string() if hasattr(user_id, "to_string") else str(user_id).strip()
+        if u_str in ("no_fav_user", "empty", "no_fav", "telegram:no_fav_user", "telegram:empty", "telegram:no_fav"):
             return False
         return True
 
@@ -489,9 +487,10 @@ class MockMeetingRoomData:
 
     @classmethod
     def get_mock_favorites(cls, user_id: Any) -> Dict[str, Any]:
-        """Return mock favorites for a user."""
+        """Return mock favorites for a user, preserving platform namespace."""
+        u_str = user_id.to_string() if hasattr(user_id, "to_string") else str(user_id).strip()
         return {
-            "user_id": str(user_id),
+            "user_id": u_str,
             "assets": ["🏢 5층", "🏢 8층"],
             "rooms": ["🚪 10-2"],
         }

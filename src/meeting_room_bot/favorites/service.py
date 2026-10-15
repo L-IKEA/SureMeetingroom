@@ -49,22 +49,28 @@ class FavoriteService:
         """Clear all favorites for a user."""
         return self.repo.clear(user_id)
 
-    def get_favorite_rooms(self, user_id: Union[UserKey, str]) -> List[Tuple[Asset, Room]]:
+    def get_favorite_rooms(
+        self,
+        user_id: Union[UserKey, str],
+        meeting_room_service: Optional[Any] = None,
+    ) -> List[Tuple[Asset, Room]]:
         """Expand user's asset and room favorites into actual Room objects, removing duplicates.
 
         If user has 0 favorites, returns empty list [].
+        Accepts optional meeting_room_service per-call to remain completely stateless across concurrent users.
         """
         uf = self.repo.get_user_favorites(user_id)
         if uf.is_empty():
             return []
 
-        if self.meeting_room_service is None:
+        svc = meeting_room_service or self.meeting_room_service
+        if svc is None:
             return []
 
         # Map room_id -> (Asset, Room) for deduplication
         resolved_map: Dict[int, Tuple[Asset, Room]] = {}
 
-        all_assets = self.meeting_room_service.get_meeting_assets()
+        all_assets = svc.get_meeting_assets()
         asset_dict = {a.id: a for a in all_assets}
 
         # 1. Expand asset favorites to all rooms in those assets
@@ -73,7 +79,7 @@ class FavoriteService:
             if not asset:
                 continue
             try:
-                item_res = self.meeting_room_service.client.get_items(asset_id)
+                item_res = svc.client.get_items(asset_id)
                 from meeting_room_bot.services.meeting_room_service import _parse_rooms
                 rooms = _parse_rooms(item_res, asset_id)
                 for r in rooms:
@@ -90,7 +96,7 @@ class FavoriteService:
             found = False
             for asset in all_assets:
                 try:
-                    item_res = self.meeting_room_service.client.get_items(asset.id)
+                    item_res = svc.client.get_items(asset.id)
                     from meeting_room_bot.services.meeting_room_service import _parse_rooms
                     rooms = _parse_rooms(item_res, asset.id)
                     target_r = next((r for r in rooms if r.id == room_id), None)

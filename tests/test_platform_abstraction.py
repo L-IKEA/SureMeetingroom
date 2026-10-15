@@ -11,12 +11,19 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+
+from meeting_room_bot.account_link.app import create_app
+from meeting_room_bot.account_link.token_service import AccountLinkTokenService
 from meeting_room_bot.auth.session_manager import UserSessionManager
 from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
 from meeting_room_bot.favorites.service import FavoriteService
 from meeting_room_bot.groupware.client import GroupwareClient
+from meeting_room_bot.models import Asset, Room
 from meeting_room_bot.models.user_key import UserKey
 from meeting_room_bot.providers.mock_provider import MockMeetingRoomProvider
+from meeting_room_bot.providers.real_provider import RealMeetingRoomProvider
 from meeting_room_bot.providers.base import QueryStatus
 
 
@@ -125,6 +132,55 @@ class TestUserKeyModel:
         assert kakao_key.to_string() == "kakao:123"
         # Guaranteed distinct from telegram user with same ID
         assert kakao_key != UserKey("telegram", "123")
+
+    def test_user_key_canonicalization_lowercase_and_strip(self):
+        """UserKey platform and platform_user_id must be stripped and platform lowercased."""
+        uk1 = UserKey(" Telegram ", "  12345  ")
+        assert uk1.platform == "telegram"
+        assert uk1.platform_user_id == "12345"
+        assert uk1.to_string() == "telegram:12345"
+
+        uk2 = UserKey("KaKaO", "user_99")
+        assert uk2.platform == "kakao"
+        assert uk2.platform_user_id == "user_99"
+
+    def test_user_key_integer_id_normalization(self):
+        """Integer platform_user_id must be safely normalized to string."""
+        uk = UserKey("telegram", 8296531540)
+        assert uk.platform_user_id == "8296531540"
+        assert uk == UserKey("telegram", "8296531540")
+        assert hash(uk) == hash(UserKey("telegram", "8296531540"))
+
+    def test_user_key_empty_platform_rejected(self):
+        """Empty or non-string platform must raise ValueError or TypeError."""
+        with pytest.raises(ValueError, match="platform must not be empty"):
+            UserKey("", "123")
+        with pytest.raises(ValueError, match="platform must not be empty"):
+            UserKey("   ", "123")
+        with pytest.raises(TypeError, match="platform must be a str"):
+            UserKey(None, "123")
+
+    def test_user_key_empty_platform_user_id_rejected(self):
+        """Empty or None platform_user_id must raise ValueError."""
+        with pytest.raises(ValueError, match="platform_user_id must not be empty"):
+            UserKey("telegram", "")
+        with pytest.raises(ValueError, match="platform_user_id must not be empty"):
+            UserKey("telegram", "   ")
+        with pytest.raises(ValueError, match="platform_user_id must not be None"):
+            UserKey("telegram", None)
+
+    def test_user_key_canonicalized_hash_and_equality_stability(self):
+        """Canonicalized variations must produce identical equality and hash for dict keying."""
+        k1 = UserKey(" TELEGRAM ", 456)
+        k2 = UserKey("telegram", "456")
+        k3 = UserKey.from_string("  telegram : 456  ")
+
+        assert k1 == k2 == k3
+        assert hash(k1) == hash(k2) == hash(k3)
+
+        store = {k1: "session_val"}
+        assert store[k2] == "session_val"
+        assert store[k3] == "session_val"
 
 
 class TestNamespaceIsolation:
@@ -273,3 +329,140 @@ class TestMockProviderUserKeySupport:
 
         now_res = provider.get_available_rooms_now(uk, scope="fav")
         assert now_res.status == QueryStatus.SUCCESS
+
+    def test_mock_provider_preserves_platform_namespace(self):
+        """MockProvider must preserve platform namespace and not collapse IDs."""
+        provider = MockMeetingRoomProvider()
+        uk_tel = UserKey("telegram", "123")
+        uk_kakao = UserKey("kakao", "123")
+
+        fav_tel = provider.get_favorites(uk_tel)
+        fav_kakao = provider.get_favorites(uk_kakao)
+
+        assert fav_tel.data["user_id"] == "telegram:123"
+        assert fav_kakao.data["user_id"] == "kakao:123"
+        assert fav_tel.data["user_id"] != fav_kakao.data["user_id"]
+
+    def test_mock_provider_favorites_namespace_isolation(self):
+        """UserKey on telegram with no_fav must not affect kakao user with same ID."""
+        provider = MockMeetingRoomProvider()
+        uk_tel_nofav = UserKey("telegram", "no_fav")
+        uk_kakao_nofav = UserKey("kakao", "no_fav")
+
+        # telegram:no_fav is configured as empty favorites
+        res_tel = provider.get_available_rooms_now(uk_tel_nofav, scope="fav")
+        assert res_tel.status == QueryStatus.NO_FAVORITES
+
+        # kakao:no_fav has isolated namespace, not treated as telegram:no_fav
+        res_kakao = provider.get_available_rooms_now(uk_kakao_nofav, scope="fav")
+        assert res_kakao.status == QueryStatus.SUCCESS
+
+
+class TestRealProviderConcurrencyAndStatelessness:
+    """Verify RealMeetingRoomProvider and FavoriteService are stateless and thread/concurrency safe."""
+
+    def test_concurrent_users_no_shared_mutable_meeting_room_service(self):
+        """Interleaved calls from user A and user B must never use the other's GroupwareClient."""
+        session_mgr = UserSessionManager()
+        repo = JsonFavoriteRepository()
+
+        # User A setup
+        uk_a = UserKey("telegram", "user_A")
+        client_a = MagicMock(spec=GroupwareClient)
+        client_a.is_authenticated = True
+        client_a.get_assets.return_value = [{"id": 50, "name": "5층 회의실"}]
+        client_a.get_items.return_value = [{"id": 501, "name": "회의실 5-1"}]
+        client_a.get_daily_reservations.return_value = []
+        session_mgr.set_client(uk_a, client_a)
+        repo.add_room(uk_a, 501)
+
+        # User B setup
+        uk_b = UserKey("telegram", "user_B")
+        client_b = MagicMock(spec=GroupwareClient)
+        client_b.is_authenticated = True
+        client_b.get_assets.return_value = [{"id": 80, "name": "8층 회의실"}]
+        client_b.get_items.return_value = [{"id": 801, "name": "회의실 8-1"}]
+        client_b.get_daily_reservations.return_value = []
+        session_mgr.set_client(uk_b, client_b)
+        repo.add_room(uk_b, 801)
+
+        # Shared singleton FavoriteService and RealMeetingRoomProvider
+        fav_service = FavoriteService(repo=repo)
+        # Verify initial meeting_room_service is None
+        assert fav_service.meeting_room_service is None
+
+        provider = RealMeetingRoomProvider(session_mgr=session_mgr, favorite_service=fav_service)
+
+        # Interleave calls: A -> B -> A -> B
+        # 1. User A queries favorites
+        fav_a_1 = provider.get_favorites(uk_a)
+        assert fav_a_1.status == QueryStatus.SUCCESS
+        assert "🚪 회의실 5-1" in fav_a_1.data["rooms"]
+        # Verify fav_service did not retain client_a in mutable instance state
+        assert fav_service.meeting_room_service is None
+
+        # 2. User B queries available rooms
+        res_b = provider.get_available_rooms_now(uk_b, scope="fav")
+        assert res_b.status == QueryStatus.SUCCESS
+        assert fav_service.meeting_room_service is None
+
+        # 3. User A queries available rooms again
+        res_a = provider.get_available_rooms_now(uk_a, scope="fav")
+        assert res_a.status == QueryStatus.SUCCESS
+        assert fav_service.meeting_room_service is None
+
+        # 4. User B queries favorites
+        fav_b = provider.get_favorites(uk_b)
+        assert fav_b.status == QueryStatus.SUCCESS
+        assert "🚪 회의실 8-1" in fav_b.data["rooms"]
+        assert fav_service.meeting_room_service is None
+
+        # Verify Client Isolation: Client A was never called for B's asset/room, and vice versa
+        for call_args in client_a.get_items.call_args_list:
+            assert call_args[0][0] != 80  # Client A was never called for Asset 80
+        for call_args in client_b.get_items.call_args_list:
+            assert call_args[0][0] != 50  # Client B was never called for Asset 50
+
+
+class TestAccountLinkingIntegrationWithUserKey:
+    """Verify end-to-end Account Linking flow using UserKey."""
+
+    def test_telegram_user_key_account_linking_integration(self):
+        """Test full token creation -> HTTP login POST -> session binding -> UserKey lookup."""
+        session_mgr = UserSessionManager()
+        token_svc = AccountLinkTokenService()
+        app = create_app()
+        client_app = TestClient(app)
+
+        uk_telegram = UserKey("telegram", "778899")
+
+        # 1. Bot creates link token for UserKey
+        token = token_svc.create_token(uk_telegram)
+        assert token is not None
+
+        def mock_login_success(self, username, password):
+            self._is_authenticated = True
+            return True
+
+        # 2. Simulate User submitting login credentials via Web Form
+        with patch("meeting_room_bot.account_link.app.session_manager", session_mgr), \
+             patch("meeting_room_bot.account_link.app.token_service", token_svc), \
+             patch.object(GroupwareClient, "login", side_effect=mock_login_success, autospec=True):
+
+            resp = client_app.post(
+                f"/link/{token}",
+                data={"username": "emp_suresoft", "password": "mock_password"},
+            )
+            assert resp.status_code == 200
+            assert "연동 완료" in resp.text or "성공" in resp.text
+
+        # 3. Verify session is bound to Telegram UserKey
+        assert session_mgr.has_session(uk_telegram) is True
+        bound_client = session_mgr.get_client(uk_telegram)
+        assert bound_client is not None
+        assert bound_client.is_authenticated is True
+
+        # 4. Verify same ID on Kakao has NO session (Namespace Isolation)
+        uk_kakao = UserKey("kakao", "778899")
+        assert session_mgr.has_session(uk_kakao) is False
+        assert session_mgr.get_client(uk_kakao) is None

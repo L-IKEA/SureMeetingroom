@@ -14,6 +14,12 @@ from meeting_room_bot.providers.mock_data import MockMeetingRoomData
 class MockMeetingRoomProvider(MeetingRoomQueryProvider):
     """Provides mock data without calling Groupware HTTP API."""
 
+    def _resolve_uid(self, user_id: Union[UserKey, str]) -> str:
+        """Resolve UserKey to qualified string 'platform:user_id', or keep raw string."""
+        if isinstance(user_id, UserKey):
+            return user_id.to_string()
+        return str(user_id).strip()
+
     def check_authentication(self, user_id: Union[UserKey, str]) -> QueryResult:
         return QueryResult(status=QueryStatus.SUCCESS)
 
@@ -22,7 +28,7 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
         return QueryResult(status=QueryStatus.SUCCESS, data={"locations": locations})
 
     def get_available_rooms_now(self, user_id: Union[UserKey, str], scope: str = "fav") -> QueryResult:
-        uid = user_id.platform_user_id if isinstance(user_id, UserKey) else str(user_id)
+        uid = self._resolve_uid(user_id)
         if scope in ("fav", "favorites") and not MockMeetingRoomData.has_favorites(uid):
             return QueryResult(status=QueryStatus.NO_FAVORITES)
 
@@ -37,7 +43,7 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
         duration: int,
         scope: str = "fav",
     ) -> QueryResult:
-        uid = user_id.platform_user_id if isinstance(user_id, UserKey) else str(user_id)
+        uid = self._resolve_uid(user_id)
         if scope in ("fav", "favorites") and not MockMeetingRoomData.has_favorites(uid):
             return QueryResult(status=QueryStatus.NO_FAVORITES)
 
@@ -64,6 +70,6 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
         return QueryResult(status=QueryStatus.SUCCESS, data=res)
 
     def get_favorites(self, user_id: Union[UserKey, str]) -> QueryResult:
-        uid = user_id.platform_user_id if isinstance(user_id, UserKey) else str(user_id)
+        uid = self._resolve_uid(user_id)
         res = MockMeetingRoomData.get_mock_favorites(uid)
         return QueryResult(status=QueryStatus.SUCCESS, data=res)

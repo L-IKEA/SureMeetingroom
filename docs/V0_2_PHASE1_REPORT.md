@@ -22,40 +22,54 @@ v0.1-local-mvp는 로컬 단일 인스턴스 환경에서 Telegram Bot 및 Group
 
 | 파일 경로 | 변경 구분 | 주요 변경 내용 |
 |---|---|---|
-| `src/meeting_room_bot/models/user_key.py` | **신규 생성** | 순수 채널 식별자 `UserKey(platform, platform_user_id)` 불변 데이터클래스 정의 |
+| `src/meeting_room_bot/models/user_key.py` | **신규 생성** | 순수 채널 식별자 `UserKey(platform, platform_user_id)` 불변 데이터클래스 정의 (정규화/유효성 검증 내장) |
 | `src/meeting_room_bot/models/__init__.py` | **수정** | `UserKey` 모듈 export 추가 |
-| `src/meeting_room_bot/providers/mock_data.py` | **신규 생성** | `MockTelegramService`의 목 데이터셋을 플랫폼 독립 `MockMeetingRoomData`로 분리 |
-| `src/meeting_room_bot/providers/mock_provider.py` | **수정** | `telegram` 패키지 import 제거, `mock_data` 참조 및 `UserKey` 지원 |
-| `src/meeting_room_bot/telegram/mock_service.py` | **수정** | `mock_data`의 `MockMeetingRoomData`를 하위 호환 re-export |
+| `src/meeting_room_bot/providers/mock_data.py` | **신규 생성** | 플랫폼 독립 Mock 데이터셋 분리 및 네임스페이스 보존 |
+| `src/meeting_room_bot/providers/mock_provider.py` | **수정** | `telegram` 패키지 import 제거, UserKey 네임스페이스(`to_string()`) 완전 보존 |
+| `src/meeting_room_bot/telegram/mock_service.py` | **수정** | `mock_data`의 목 데이터를 하위 호환 re-export |
 | `src/meeting_room_bot/providers/base.py` | **수정** | `MeetingRoomQueryProvider` 인터페이스에 `UserKey` 지원 및 Transition Compatibility 명시 |
-| `src/meeting_room_bot/providers/real_provider.py` | **수정** | 모든 쿼리 메서드에서 `Union[UserKey, str]` 지원 및 내부 정규화 |
+| `src/meeting_room_bot/providers/real_provider.py` | **수정** | 공유 mutable service 제거, UserKey 정규화 및 Stateless 호출 구조 확립 |
+| `src/meeting_room_bot/services/meeting_room_service.py` | **수정** | FavoriteService 호출 시 `meeting_room_service=self` 명시적 전달 (Stateless 지원) |
 | `src/meeting_room_bot/auth/session_manager.py` | **수정** | `UserKey` 플랫폼 격리 및 레거시 문자열 ID와의 양방향 호환 어댑터 구현 |
 | `src/meeting_room_bot/favorites/repository.py` | **수정** | `FavoriteRepository` 인터페이스에 `Union[UserKey, str]` Transition Layer 명시 |
 | `src/meeting_room_bot/favorites/json_repository.py` | **수정** | `_resolve_storage_key` 헬퍼를 통한 `UserKey` 및 레거시 JSON 키 호환 처리 |
-| `src/meeting_room_bot/favorites/service.py` | **수정** | 즐겨찾기 도메인 서비스 메서드에 Transition Compatibility Layer 명시 |
-| `src/meeting_room_bot/account_link/token_service.py` | **수정** | 1회성 토큰 생성 시 `Union[UserKey, str]` 수용 및 직렬화 바인딩 |
+| `src/meeting_room_bot/favorites/service.py` | **수정** | `get_favorite_rooms` 호출 시 service 매개변수 수용으로 완전 Stateless화 |
+| `src/meeting_room_bot/account_link/token_service.py` | **수정** | 1회성 토큰 생성 시 `UserKey` 수용 및 직렬화 바인딩 |
 | `src/meeting_room_bot/telegram/handlers.py` | **수정** | `update.effective_user.id`를 명시적 `UserKey("telegram", ...)`로 변환 후 Core에 전달 |
-| `tests/test_platform_abstraction.py` | **신규 생성** | UserKey 동작, 네임스페이스 격리, Hash 안정성, Core 무종속성(AST 검사) 14개 단위 테스트 추가 |
+| `tests/test_platform_abstraction.py` | **신규 생성** | UserKey 정규화/검증, 동시성 격리, Account Linking E2E, Core 무종속성 등 23개 단위 테스트 추가 |
 | `docs/V0_2_ARCHITECTURE_PLAN.md` | **수정** | UserKey 채널 식별자 정제, Ingress/Reverse Proxy 검토 표현 동기화 |
-| `docs/V0_2_PHASE1_REPORT.md` | **수정** | Phase 1 최종 설계 보완 사항 및 테스트 결과 반영 |
+| `docs/V0_2_PHASE1_REPORT.md` | **수정** | Phase 1 Final Hardening 보완 사항 및 180개 테스트 통과 결과 반영 |
 
 ---
 
-## 3. UserKey 및 호환성 설계
+## 3. UserKey 및 아키텍처 하드닝 (Final Hardening)
 
-### 3.1 최종 `UserKey` 구조 (순수 Channel Identity)
+### 3.1 최종 `UserKey` 구조 및 정규화/유효성 검증
+`UserKey`는 플랫폼상의 채널 사용자 식별자(`platform`, `platform_user_id`)만 표현하며, 생성 시 자동으로 canonical representation을 보장합니다.
+
 ```python
 @dataclass(frozen=True)
 class UserKey:
-    """Platform-independent channel identity identifying a user within a messaging platform.
+    """Platform-independent channel identity identifying a user within a messaging platform."""
+    platform: str          # "telegram" | "kakao" (lowercase, stripped)
+    platform_user_id: str  # "8296531540" | "k_hash_abc" (stripped string)
 
-    Architectural Principle:
-    - UserKey represents ONLY the platform-specific channel identity (e.g. telegram:8296531540, kakao:k_12345).
-    - It must NOT contain internal employee or corporate application user state (e.g. internal_user_id, emp_id),
-      so that hash and equality remain strictly stable when used as dictionary/cache keys.
-    """
-    platform: str          # "telegram" | "kakao"
-    platform_user_id: str  # "8296531540" | "k_hash_abc"
+    def __post_init__(self):
+        """Canonicalize and strictly validate platform and platform_user_id fields."""
+        if not isinstance(self.platform, str):
+            raise TypeError(f"platform must be a str, got {type(self.platform).__name__}")
+        canon_platform = self.platform.strip().lower()
+        if not canon_platform:
+            raise ValueError("platform must not be empty")
+
+        if self.platform_user_id is None:
+            raise ValueError("platform_user_id must not be None")
+        canon_user_id = str(self.platform_user_id).strip()
+        if not canon_user_id:
+            raise ValueError("platform_user_id must not be empty")
+
+        object.__setattr__(self, "platform", canon_platform)
+        object.__setattr__(self, "platform_user_id", canon_user_id)
 
     def to_string(self) -> str:
         return f"{self.platform}:{self.platform_user_id}"
@@ -67,25 +81,23 @@ class UserKey:
     def from_any(cls, val: Union["UserKey", str, int], default_platform: str = "telegram") -> "UserKey": ...
 ```
 
-### 3.2 핵심 설계 결정 및 원칙
+- **Canonicalization**: `UserKey(" Telegram ", 123)` 생성 시 자동으로 `UserKey("telegram", "123")`로 정규화되어 hash/equality 안정성이 100% 보장됩니다.
+- **Strict Validation**: 빈 문자열(`""`, `"   "`)이나 `None` 입력 시 즉시 `ValueError`를 발생시켜 잘못된 식별자 생성을 원천 차단합니다.
 
-1. **`internal_user_id` 제거 이유 (Hash & Equality 정합성)**:
-   - `UserKey`는 세션 딕셔너리(`_sessions[user_key]`)나 즐겨찾기 저장소의 식별 키(Dict Key)로 직접 활용됩니다.
-   - 만약 `UserKey` 내부에 `internal_user_id` 필드가 포함되면:
-     `UserKey("telegram", "123", None)` 과 `UserKey("telegram", "123", "emp_001")`
-     가 equality 및 hash 관점에서 서로 다른 객체로 판별되어, 계정 연동 전후에 기존 세션이나 즐겨찾기 조회 정합성이 파괴됩니다.
-   - 따라서 `UserKey`는 순수한 **메신저 플랫폼 채널 식별자(Channel Identity)** 역할만 수행하며, 사내 임직원 식별 정보는 포함하지 않습니다.
+### 3.2 RealMeetingRoomProvider 공유 mutable 상태 완전 제거
+- **기존 문제점**: `RealMeetingRoomProvider._get_service()`에서 싱글톤 `self.favorite_service.meeting_room_service = service`로 사용자별 서비스를 할당하여, 동시 요청 시 사용자 A의 요청에 사용자 B의 GroupwareClient가 오염될 수 있는 동시성 결함이 존재했습니다.
+- **해결 방안 (Statelessness)**:
+  - `FavoriteService.get_favorite_rooms(user_id, meeting_room_service=None)`로 시그니처를 개선하여 호출 시점에 필요한 서비스를 명시적으로 전달받도록 변경.
+  - `RealMeetingRoomProvider`의 `_get_service()`에서 mutable field 할당 로직을 완전 삭제.
+  - 다중 사용자 교차 호출 동시성 테스트(`test_concurrent_users_no_shared_mutable_meeting_room_service`)를 통해 상호 클라이언트 오염이 0%임을 검증 완료.
 
-2. **Internal App User 확장 모델 분리**:
-   - 향후 사내 사용자는 `UserKey`에 필드를 추가하는 대신, 상위 모델(`AppUser`, `ChannelIdentity`, `AccountMapping`)로 별도 분리하여 N:1 매핑을 구성하도록 설계합니다.
-   - 이번 Phase 1에서는 `AppUser`, DB, `AccountMapping`을 구현하지 않으며 아키텍처 경계만 분리합니다.
+### 3.3 MockProvider 및 MockMeetingRoomData 네임스페이스 보존
+- `MockMeetingRoomProvider`가 UserKey 수신 시 `user_id.platform_user_id`로 플랫폼을 절삭하던 문제를 해결하여 `user_id.to_string()`을 사용하도록 수정.
+- `MockMeetingRoomData.has_favorites()` 및 `get_mock_favorites()`에서 불필요하게 `:` 기준으로 platform prefix를 제거하던 로직을 제거하여, Mock 환경에서도 `telegram:123`과 `kakao:123`이 서로 다른 독립 주체로 격리되도록 보장.
 
-3. **Legacy Compatibility Layer 범위 및 원칙**:
-   - Core 인터페이스의 `Union[UserKey, str]`은 v0.2 전환기 동안 v0.1 테스트와 기존 데이터를 지원하기 위한 **한시적 Transition Compatibility Layer**입니다.
-   - **데이터 흐름 원칙**:
-     - 메신저 어댑터(Platform Adapter) → 명시적 `UserKey` 생성 → Core 내부는 100% `UserKey` 사용.
-     - 기존 `str user_id`는 v0.1 하위 호환 경로에서만 허용.
-     - 향후 신규 Kakao 어댑터는 plain `str`을 넘기지 않고 반드시 명시적인 `UserKey("kakao", id)`를 생성해야 합니다 (오인 fallback 차단).
+### 3.4 Account Linking E2E 검증 완료
+- `account_link/app.py` 1-hop consumer와의 연동을 검증하는 통합 테스트(`test_telegram_user_key_account_linking_integration`) 추가.
+- Telegram UserKey → 토큰 발급 → HTTP POST 로그인 → 세션 등록 → Telegram UserKey 조회 흐름이 완벽히 동작하며 Kakao와 네임스페이스가 격리됨을 입증.
 
 ---
 
@@ -122,34 +134,34 @@ rootdir: C:\Users\suresoft\Desktop\priv\30.vibe\06.meetingroom\suremeetingroom-b
 configfile: pytest.ini
 testpaths: tests
 plugins: anyio-4.13.0
-collected 171 items
+collected 180 items
 
 tests\test_account_link.py .............                                 [  7%]
-tests\test_account_link_localhost.py ......                              [ 11%]
-tests\test_auth_session.py ....                                          [ 13%]
-tests\test_availability_service.py .............                         [ 21%]
-tests\test_bugs_safe_edit_and_next_res.py ........                       [ 25%]
-tests\test_client.py .....                                               [ 28%]
-tests\test_favorites.py .................                                [ 38%]
-tests\test_flow_entry_state.py ......                                    [ 42%]
-tests\test_meeting_room_service.py .......                               [ 46%]
-tests\test_multi_user_isolation.py ...                                   [ 47%]
-tests\test_platform_abstraction.py ..............                        [ 56%]
-tests\test_precise_room_status.py .......                                [ 60%]
-tests\test_providers.py ......                                           [ 63%]
-tests\test_real_favorites.py ..........                                  [ 69%]
-tests\test_real_mode_auth_flow.py ........                               [ 74%]
-tests\test_room_detail_today_filter.py ......                            [ 77%]
-tests\test_room_status_attribute.py .....                                [ 80%]
+tests\test_account_link_localhost.py ......                              [ 10%]
+tests\test_auth_session.py ....                                          [ 12%]
+tests\test_availability_service.py .............                         [ 20%]
+tests\test_bugs_safe_edit_and_next_res.py ........                       [ 24%]
+tests\test_client.py .....                                               [ 27%]
+tests\test_favorites.py .................                                [ 36%]
+tests\test_flow_entry_state.py ......                                    [ 40%]
+tests\test_meeting_room_service.py .......                               [ 43%]
+tests\test_multi_user_isolation.py ...                                   [ 45%]
+tests\test_platform_abstraction.py .......................               [ 58%]
+tests\test_precise_room_status.py .......                                [ 62%]
+tests\test_providers.py ......                                           [ 65%]
+tests\test_real_favorites.py ..........                                  [ 71%]
+tests\test_real_mode_auth_flow.py ........                               [ 75%]
+tests\test_room_detail_today_filter.py ......                            [ 78%]
+tests\test_room_status_attribute.py .....                                [ 81%]
 tests\test_room_status_service.py ...........                            [ 87%]
-tests\test_telegram_bot.py ...............                               [ 95%]
+tests\test_telegram_bot.py ...............                               [ 96%]
 tests\test_today_boundary_room_status.py .......                         [100%]
 
-============================= 171 passed in 1.22s =============================
+============================= 180 passed in 1.80s =============================
 ```
 
 - **기존 테스트**: 157개 100% 통과 (Failed: 0, Skipped: 0)
-- **신규 테스트 (`tests/test_platform_abstraction.py`)**: 14개 신규 통과
+- **신규 테스트 (`tests/test_platform_abstraction.py`)**: 23개 통과 (Zero Regression)
   1. `test_user_key_creation_and_fields` (필드 및 불변성 검증)
   2. `test_user_key_equality_and_hash_stability` (동일 platform/id 간 동일 hash/equality 및 Dict Key 검증)
   3. `test_user_key_serialization_and_str` (to_string / str 직렬화)
@@ -157,13 +169,22 @@ tests\test_today_boundary_room_status.py .......                         [100%]
   5. `test_user_key_from_any_transition_layer` (전환기 호환 레이어)
   6. `test_user_key_equality_independent_of_internal_user_or_account_mapping` (내부 사원 매핑 정보와 UserKey equality의 독립성 검증)
   7. `test_new_platform_adapter_explicit_construction` (신규 어댑터의 명시적 UserKey 생성 필수 검증)
-  8. `test_telegram_and_kakao_distinct_keys` (동일 ID 타 플랫폼 분리)
-  9. `test_session_manager_platform_isolation` (세션 네임스페이스 격리)
-  10. `test_session_manager_bidirectional_compatibility` (세션 양방향 레거시 호환)
-  11. `test_favorites_repository_user_key_compatibility` (즐겨찾기 저장소 격리 및 호환)
-  12. `test_mock_provider_does_not_import_telegram` (Mock AST 무종속성)
-  13. `test_all_core_layers_have_zero_telegram_dependencies` (Core 6개 패키지 AST 무종속성 100% 검증)
-  14. `test_mock_provider_query_with_user_key` (Provider 쿼리 동작 검증)
+  8. `test_user_key_canonicalization_lowercase_and_strip` (platform 소문자/공백제거 정규화 검증)
+  9. `test_user_key_integer_id_normalization` (정수형 ID 문자열 자동 정규화 검증)
+  10. `test_user_key_empty_platform_rejected` (빈 platform 입력 즉시 거부 검증)
+  11. `test_user_key_empty_platform_user_id_rejected` (빈 user_id/None 입력 즉시 거부 검증)
+  12. `test_user_key_canonicalized_hash_and_equality_stability` (정규화 변종 간 완벽한 equality/hash 정합성 검증)
+  13. `test_telegram_and_kakao_distinct_keys` (동일 ID 타 플랫폼 분리)
+  14. `test_session_manager_platform_isolation` (세션 네임스페이스 격리)
+  15. `test_session_manager_bidirectional_compatibility` (세션 양방향 레거시 호환)
+  16. `test_favorites_repository_user_key_compatibility` (즐겨찾기 저장소 격리 및 호환)
+  17. `test_mock_provider_does_not_import_telegram` (Mock AST 무종속성)
+  18. `test_all_core_layers_have_zero_telegram_dependencies` (Core 6개 패키지 AST 무종속성 100% 검증)
+  19. `test_mock_provider_query_with_user_key` (Provider 쿼리 동작 검증)
+  20. `test_mock_provider_preserves_platform_namespace` (MockProvider에서 UserKey namespace 완전 보존 검증)
+  21. `test_mock_provider_favorites_namespace_isolation` (MockProvider 즐겨찾기 네임스페이스 격리 검증)
+  22. `test_concurrent_users_no_shared_mutable_meeting_room_service` (다중 사용자 동시/교차 요청 시 Client 오염 방지 및 Statelessness 검증)
+  23. `test_telegram_user_key_account_linking_integration` (FastAPI TestClient 연동 E2E Account Linking 검증)
 
 ---
 
