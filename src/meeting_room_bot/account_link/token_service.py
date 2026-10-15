@@ -3,7 +3,9 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import secrets
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
+
+from meeting_room_bot.models.user_key import UserKey
 
 
 @dataclass
@@ -18,23 +20,29 @@ class TokenData:
 
 
 class AccountLinkTokenService:
-    """Manages secure, short-lived, one-time Account Linking tokens."""
+    """Manages secure, short-lived, one-time Account Linking tokens.
+
+    Transition Compatibility Notice:
+    - UserKey is serialized into 'platform:user_id' for tokens.
+    - Plain str is accepted during v0.2 transition period for v0.1 test backward compatibility.
+    """
 
     def __init__(self, default_ttl_seconds: int = 600):
         self.default_ttl = default_ttl_seconds
         self._tokens: Dict[str, TokenData] = {}
 
-    def create_token(self, user_id: str, ttl_seconds: Optional[int] = None) -> str:
-        """Create a new one-time token for a Telegram user_id."""
+    def create_token(self, user_id: Union[UserKey, str], ttl_seconds: Optional[int] = None) -> str:
+        """Create a new one-time token for a user."""
         token = secrets.token_urlsafe(32)
         ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl
 
         now = datetime.now(timezone.utc)
         expires = now + timedelta(seconds=ttl)
 
+        uid_str = user_id.to_string() if isinstance(user_id, UserKey) else str(user_id)
         data = TokenData(
             token=token,
-            user_id=str(user_id),
+            user_id=uid_str,
             created_at=now,
             expires_at=expires,
             is_used=False,

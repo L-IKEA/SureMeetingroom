@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from meeting_room_bot.auth.session_manager import UserSessionManager
 from meeting_room_bot.favorites.service import FavoriteService
@@ -11,6 +11,7 @@ from meeting_room_bot.groupware.client import (
     GroupwareAuthError,
     GroupwareNetworkError,
 )
+from meeting_room_bot.models.user_key import UserKey
 from meeting_room_bot.providers.base import (
     MeetingRoomQueryProvider,
     QueryResult,
@@ -33,7 +34,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
         self.session_mgr = session_mgr
         self.favorite_service = favorite_service
 
-    def _get_service(self, user_id: str) -> Optional[MeetingRoomService]:
+    def _get_service(self, user_id: Union[UserKey, str]) -> Optional[MeetingRoomService]:
         """Helper to get MeetingRoomService for authenticated user."""
         client = self.session_mgr.get_client(user_id)
         if not client or not client.is_authenticated:
@@ -42,13 +43,13 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
         self.favorite_service.meeting_room_service = service
         return service
 
-    def check_authentication(self, user_id: str) -> QueryResult:
+    def check_authentication(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Check if user has an active authenticated Groupware session."""
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
         return QueryResult(status=QueryStatus.SUCCESS)
 
-    def get_locations(self, user_id: str) -> QueryResult:
+    def get_locations(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Query list of meeting room location assets via Groupware API."""
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
@@ -79,7 +80,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             logger.error(f"Error fetching locations for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
 
-    def get_available_rooms_now(self, user_id: str, scope: str = "fav") -> QueryResult:
+    def get_available_rooms_now(self, user_id: Union[UserKey, str], scope: str = "fav") -> QueryResult:
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
@@ -168,7 +169,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
 
     def get_available_rooms_at(
         self,
-        user_id: str,
+        user_id: Union[UserKey, str],
         date_str: str,
         start_time: str,
         duration: int,
@@ -253,7 +254,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
 
-    def get_location_status(self, user_id: str, asset_id: int) -> QueryResult:
+    def get_location_status(self, user_id: Union[UserKey, str], asset_id: int) -> QueryResult:
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
@@ -314,7 +315,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
 
-    def get_room_detail(self, user_id: str, asset_id: int, room_id: int) -> QueryResult:
+    def get_room_detail(self, user_id: Union[UserKey, str], asset_id: int, room_id: int) -> QueryResult:
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
@@ -354,7 +355,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
 
-    def get_favorites(self, user_id: str) -> QueryResult:
+    def get_favorites(self, user_id: Union[UserKey, str]) -> QueryResult:
         if not self.session_mgr.has_session(user_id):
             return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
 
@@ -362,10 +363,11 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
         asset_names = list({a.name for a, _ in fav_tuples})
         room_names = [f"🚪 {r.name}" for _, r in fav_tuples]
 
+        uid_str = user_id.to_string() if isinstance(user_id, UserKey) else str(user_id)
         return QueryResult(
             status=QueryStatus.SUCCESS,
             data={
-                "user_id": user_id,
+                "user_id": uid_str,
                 "assets": asset_names if asset_names else ["(없음)"],
                 "rooms": room_names if room_names else ["(없음)"],
             },
