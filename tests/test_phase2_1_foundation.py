@@ -351,6 +351,51 @@ class TestFavoritesAtomicWriteAndCorruptionDefense:
             with pytest.raises(FavoriteStorageCorruptionError):
                 repo.get_user_favorites(u)
 
+    def test_non_existent_favorites_file_starts_empty_without_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "new_user")
+            favs = repo.get_user_favorites(u)
+            assert favs.is_empty()
+
+    def test_zero_byte_favorites_file_treated_as_corruption_and_blocks_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            # Create 0-byte file
+            with open(file_path, "wb") as f:
+                pass
+            assert os.path.getsize(file_path) == 0
+
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "zero_byte_user")
+
+            with pytest.raises(FavoriteStorageCorruptionError, match="empty"):
+                repo.get_user_favorites(u)
+
+            with pytest.raises(FavoriteStorageCorruptionError, match="empty"):
+                repo.add_asset(u, 50)
+
+            # File must remain 0 bytes (not overwritten with empty template or mutation)
+            assert os.path.getsize(file_path) == 0
+
+    def test_whitespace_only_favorites_file_treated_as_corruption_and_blocks_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            whitespace_content = "   \n\t  \r\n  "
+            with open(file_path, "w", encoding="utf-8", newline="") as f:
+                f.write(whitespace_content)
+
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "whitespace_user")
+
+            with pytest.raises(FavoriteStorageCorruptionError, match="empty"):
+                repo.add_room(u, 101)
+
+            # Original whitespace content must not be overwritten
+            with open(file_path, "r", encoding="utf-8", newline="") as f:
+                assert f.read() == whitespace_content
+
 
 # ---------------------------------------------------------------------------
 # 7. Blocking Groupware I/O Event Loop Isolation
@@ -359,7 +404,6 @@ class TestBlockingIOIsolation:
     @pytest.mark.anyio
     async def test_slow_groupware_call_does_not_block_async_event_loop(self):
         """Verify that a slow blocking provider call offloaded via asyncio.to_thread
-
         allows concurrent async tasks on the same event loop to proceed freely.
         """
         slow_complete = False
@@ -461,3 +505,40 @@ class TestRateLimitingAndSecurityHeaders:
         assert headers.get("x-content-type-options") == "nosniff"
         assert headers.get("x-frame-options") == "DENY"
         assert headers.get("content-security-policy") == "frame-ancestors 'none'"
+
+
+# ---------------------------------------------------------------------------
+# 11. Login Failure UX & Burn-on-use Policy Consistency
+# ---------------------------------------------------------------------------
+class TestLoginFailureUXAndBurnOnUse:
+    def test_login_failure_burns_token_and_renders_guidance_without_retry_ui(self):
+        """On login failure: token is consumed, retry button is removed, and guidance is displayed."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "burn_test_user")
+        tok = token_service.create_token(user_key)
+        assert tok in token_service._tokens
+
+        # Attempt login with failing credentials
+        with patch.object(GroupwareClient, "login", return_value=False):
+            resp = client.post(f"/link/{tok}", data={"username": "wrong_user", "password": "wrong_password"})
+
+        assert resp.status_code == 400
+
+        # 1. Token must be already burned/consumed
+        assert token_service.consume_token(tok) is None
+        assert tok not in token_service._tokens
+
+        # 2. Response HTML must NOT have history.back retry button
+        assert "javascript:history.back()" not in resp.text
+        assert "btn-retry" not in resp.text
+        assert "다시 시도" not in resp.text
+
+        # 3. Web layer must NOT automatically generate a new token
+        active_tokens = [k for k, v in token_service._tokens.items() if v.user_id == user_key.to_string()]
+        assert active_tokens == []
+
+        # 4. Guidance message must be present directing user back to Telegram
+        assert "Telegram으로 돌아가" in resp.text
+        assert "회사 계정 연결" in resp.text
+        assert "새로운 연결 링크를 발급받아 주세요" in resp.text
+

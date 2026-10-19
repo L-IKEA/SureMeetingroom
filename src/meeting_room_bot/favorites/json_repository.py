@@ -54,7 +54,7 @@ class JsonFavoriteRepository(FavoriteRepository):
     def _create_corrupted_backup(self) -> Optional[Path]:
         """Create a timestamped backup copy of the corrupted file."""
         try:
-            if self.file_path.exists() and self.file_path.stat().st_size > 0:
+            if self.file_path.exists():
                 backup_path = self.file_path.with_name(f"{self.file_path.name}.corrupted.{int(time.time())}")
                 shutil.copyfile(self.file_path, backup_path)
                 logger.error(f"[JsonFavoriteRepository] Preserved corrupted favorites file at: {backup_path}")
@@ -73,8 +73,13 @@ class JsonFavoriteRepository(FavoriteRepository):
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
                 if not content:
-                    return {"users": {}}
+                    self._create_corrupted_backup()
+                    msg = f"Corrupted favorites storage: file {self.file_path} exists but is empty (0 bytes or whitespace only)"
+                    logger.error(f"[JsonFavoriteRepository] {msg}")
+                    raise FavoriteStorageCorruptionError(msg)
                 data = json.loads(content)
+            except FavoriteStorageCorruptionError:
+                raise
             except Exception as e:
                 self._create_corrupted_backup()
                 logger.error(f"[JsonFavoriteRepository] Corruption: Failed to parse favorites JSON from {self.file_path}: {e}")

@@ -51,20 +51,26 @@
             margin-bottom: 24px;
         }
 
-        .btn-retry {
-            display: inline-block;
-            padding: 12px 24px;
-            background-color: #ef4444;
-            color: #ffffff;
+        .error-message {
             font-size: 14px;
-            font-weight: 600;
-            text-decoration: none;
-            border-radius: 8px;
-            transition: background-color 0.2s;
+            color: #475569;
+            line-height: 1.6;
+            margin-bottom: 20px;
         }
 
-        .btn-retry:hover {
-            background-color: #dc2626;
+        .guidance-box {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 13px;
+            color: #334155;
+            line-height: 1.6;
+            text-align: left;
+        }
+
+        .guidance-box strong {
+            color: #1e293b;
         }
     </style>
 </head>
@@ -72,8 +78,11 @@
     <div class="card">
         <div class="icon">❌</div>
         <h1>로그인에 실패했습니다</h1>
-        <p>{{ message }}</p>
-        <a href="javascript:history.back()" class="btn-retry">🔄 다시 시도</a>
+        <p class="error-message">{{ message }}</p>
+        <div class="guidance-box">
+            보안을 위해 연결 링크는 1회만 사용 가능합니다.<br>
+            Telegram으로 돌아가 <strong>'회사 계정 연결'</strong>을 다시 눌러 새로운 연결 링크를 발급받아 주세요.
+        </div>
     </div>
 </body>
 </html>
