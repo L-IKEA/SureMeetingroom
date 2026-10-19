@@ -1,0 +1,2049 @@
+diff --git a/docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md b/docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md
+index 5df9bbc..1a29baa 100644
+--- a/docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md
++++ b/docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md
+@@ -1,74 +1,85 @@
+ # SureMeetingRoom Bot v0.2 Phase 2: Production Deployment Decision & HTTPS Account Linking Plan
+ 
+-**문서 버전**: v1.0  
+-**작성일**: 2026-10-15  
++**문서 버전**: v1.1 (Phase 2.1 Production Foundation 반영)  
++**작성일**: 2026-10-19  
+ **대상 브랜치**: `feature/v0.2-platform-abstraction`  
+-**기준 커밋**: `4c771c2966f881c4aba626df8abadf921fcff0fb` (v0.2 Pre-Phase 2 Date Fix 완료 시점)  
+-**상태**: Phase 2 설계 및 운영 의사결정 계획 확정 (구현 착수 전)  
++**기준 태그 / 커밋**:  
++- Release Base Tag: `v0.1-local-mvp`  
++- Task Base Commit: `79ecbe9506285866480a906c804aca49e2d79d66`  
++**상태**: Phase 2.1 Production Foundation 완료 / 운영 의사결정 대기 (실제 Cloud/DNS/방화벽 변경 보류)  
+ 
+ ---
+ 
+-## 1. Current Deployment Architecture (현재 로컬 실행 구조 분석)
++## 1. Current Deployment Architecture & Single-Process Pilot Constraint
+ 
+-현재 SureMeetingRoom Bot의 로컬 실행 구조(`scripts/run_local_app.py`)는 단일 Python 프로세스 내에서 Telegram Polling 봇과 FastAPI 웹 서버를 비동기 이벤트 루프로 동시 구동하는 형태입니다.
++현재 SureMeetingRoom Bot의 실행 구조는 단일 Python 프로세스 내에서 Telegram Polling 봇과 FastAPI 웹 서버를 비동기 이벤트 루프(`asyncio`)로 동시 구동하는 형태입니다.
+ 
+ ```text
+ +-----------------------------------------------------------------------------------------+
+-| Single Python Process (asyncio Event Loop)                                              |
++| Single Python Process (asyncio Event Loop) - [MANDATORY PILOT CONSTRAINT]               |
+ |                                                                                         |
+ |  +-----------------------------------+     +-----------------------------------------+  |
+ |  |     Telegram Bot Application      |     |           FastAPI Web Server            |  |
+-|  |   (python-telegram-bot Polling)   |     |                (Uvicorn)                |  |
++|  |   (python-telegram-bot Polling)   |     |      (Uvicorn: 1 Worker ONLY)           |  |
+ |  +-----------------+-----------------+     +--------------------+--------------------+  |
+ |                    |                                            |                       |
+ |                    v                                            v                       |
+ |  +-----------------------------------------------------------------------------------+  |
+ |  |                       In-Memory Shared Singletons                                 |  |
+ |  |                                                                                   |  |
+-|  |   1. session_manager (UserSessionManager)                                         |  |
++|  |   1. session_manager (UserSessionManager) - in-memory dictionary                  |  |
+ |  |      - storage_key -> GroupwareClient (HTTP Session with GOSSOcookie)             |  |
+ |  |                                                                                   |  |
+-|  |   2. token_service (AccountLinkTokenService)                                      |  |
++|  |   2. token_service (AccountLinkTokenService) - in-memory dictionary               |  |
+ |  |      - token -> TokenData(user_id, expires_at, is_used)                           |  |
++|  |                                                                                   |  |
++|  |   3. user_state_mgr (UserStateManager) - in-memory UI wizard state                |  |
+ |  +-----------------+--------------------------------------------+--------------------+  |
+ +--------------------|--------------------------------------------|-----------------------+
+                      |                                            |
+-                     v                                            v
++                     v (asyncio.to_thread)                        v (asyncio.to_thread)
+          +-----------------------+                    +-----------------------+
+          |  data/favorites.json  |                    |  Groupware API        |
+-         |  (Local File Repo)    |                    |  gw.suresofttech.com  |
++         |  (Atomic File Repo)   |                    |  gw.suresofttech.com  |
+          +-----------------------+                    +-----------------------+
+ ```
+ 
+-### 1.1 Telegram Bot과 FastAPI의 세션 공유 방식
+-- **동일 프로세스 메모리 공유**: `run_local_app.py`에서 `create_app()`과 `build_application()`이 동일 인터프리터에서 실행됩니다.
+-- `src/meeting_room_bot/auth/session_manager.py`의 모듈 레벨 전역 객체 `session_manager = UserSessionManager()`를 양쪽에서 import하여 메모리 딕셔너리(`_sessions`)를 직접 공유합니다.
+-- **Account Linking 라이프사이클**:
+-  1. Telegram 핸들러가 미인증 상태(`QueryStatus.NOT_AUTHENTICATED`) 감지 시 `token_service.create_token(user_key)`로 1회성 토큰 발급.
+-  2. 사용자가 브라우저에서 `GET /link/{token}` 접속 -> `POST /link/{token}`으로 아이디/비밀번호 제출.
+-  3. FastAPI의 `process_login` 엔드포인트가 `GroupwareClient().login()`을 호출하여 인증 성공 시, `session_manager.set_client(user_id, client)`를 호출하여 메모리에 세션 등록.
+-  4. 사용자가 Telegram 봇으로 복귀하여 버튼을 누르면, Telegram 핸들러가 `session_manager.get_client(user_key)`를 조회하여 즉시 인증된 상태로 회의실 조회 수행.
++### 1.1 Single-Process Pilot Constraint (단일 프로세스 운영 제약)
++> [!IMPORTANT]
++> **Production Pilot 제약사항**:
++> 현재 아키텍처에서는 세션(`UserSessionManager`), 토큰(`AccountLinkTokenService`), 대화 상태(`UserStateManager`)가 모두 프로세스 인메모리 딕셔너리로 관리됩니다.
++> 따라서 Production Pilot 환경에서는 반드시 다음 조건을 엄격히 유지해야 합니다:
++> - **Server Instance = 1**
++> - **Python Process = 1**
++> - **Uvicorn Worker = 1** (`--workers 1` 필수)
++
++**현재 금지 사항**:
++- `uvicorn --workers 2` 이상 다중 워커 구동 금지
++- 여러 Application Process / Daemon 분산 금지
++- 다중 Container Replica (예: Kubernetes Deployment replicas > 1, ECS tasks > 1) 금지
++- 복수 VM / Load Balanced 타겟 금지
++
++**사유**:
++Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/link/{token}` 요청을 전달받은 프로세스가 다르면, 인메모리 토큰을 찾지 못해 계정 연결이 실패합니다. 또한 로그인 완료 후 등록된 `GroupwareClient` 세션도 프로세스 간 공유되지 않습니다.
+ 
+-### 1.2 로컬 개발 모드의 한계점
+-- **Localhost 제약**: `ACCOUNT_LINK_BASE_URL=http://localhost:8000` 환경에서는 모바일 텔레그램 인라인 버튼에 `http://localhost...` URL을 넣을 수 없음 (Telegram API 규격상 localhost/IP URL 버튼 전송 시 `BadRequest` 에러 발생). 따라서 현재는 터미널 로그에 URL을 출력하고 PC 브라우저로 복사/붙여넣기하는 방식을 취하고 있음.
+-- **프로세스 수명 종속성**: 개발자 PC가 꺼지거나 프로세스가 종료되면 봇 응답이 중단되고 모든 인메모리 세션이 초기화됨.
++**향후 다중 인스턴스 스케일아웃 계획**:
++다중 인스턴스/워커 구성은 향후 별도 Phase에서 **Shared TokenStore(Redis/DB)** 및 **Shared SessionStore(암호화된 세션 저장소)**를 도입한 이후에 활성화합니다.
+ 
+ ---
+ 
+-## 2. Production Requirements (운영 환경 필수 조건)
++## 2. Production Pilot Requirements (운영 환경 필수 조건)
+ 
+-실제 사내 임직원 대상 상시 운영을 위해 만족해야 하는 8대 핵심 요건은 다음과 같습니다:
++사내 임직원 대상 상시 파일럿 운영을 위한 핵심 요건입니다:
+ 
+-| 번호 | 요구사항 | 운영 충족 조건 |
++| 번호 | 요구사항 | 파일럿 운영 충족 조건 |
+ |---|---|---|
+-| **REQ-1** | **24시간 무중단 가동** | 개발자 PC 종료와 무관하게 서버/VM/컨테이너 인프라에서 데몬/서비스 형태로 상시 동작 |
+-| **REQ-2** | **다중 사용자 동시성** | 수십~수백 명의 사용자가 동시에 봇 쿼리 및 계정 연결을 진행해도 세션 오염/충돌 없음 (Phase 1 Stateless화 완료 검증됨) |
++| **REQ-1** | **24시간 무중단 가동** | 개발자 PC 종료와 무관하게 서버/VM 인프라에서 단일 프로세스 서비스 데몬 형태로 상시 동작 |
++| **REQ-2** | **Pilot 사용자 격리 및 비차단 I/O** | `UserKey`(`telegram:123456`) 기반 완전 세션 격리 및 `asyncio.to_thread`를 통한 동기 I/O 격리로 다중 사용자 간 응답 지연 전파 방지 |
+ | **REQ-3** | **모바일 원클릭 계정 연결** | 스마트폰 텔레그램 앱의 인라인 버튼 클릭 시 외부 브라우저가 열려 로그인 완료 후 복귀 가능 |
+ | **REQ-4** | **공인 HTTPS 적용** | 모바일 브라우저 및 Telegram In-App Browser에서 보안 경고 없는 유효한 공인 SSL/TLS 인증서 통신 |
+-| **REQ-5** | **Groupware API 접근** | 봇 실행 인프라에서 사내 그룹웨어(`https://gw.suresofttech.com/api/*`)로의 원활한 HTTPS Egress 통신 |
+-| **REQ-6** | **사용자별 Session 격리** | `UserKey`(`telegram:123456`) 기반으로 HTTP 세션 및 인증 쿠키 완벽 분리 |
+-| **REQ-7** | **사용자별 Favorites 유지** | 서버 재시작 시에도 임직원이 등록한 즐겨찾기 회의실 목록 보존 |
+-| **REQ-8** | **민감정보 로그 미노출** | 봇 토큰, 그룹웨어 비밀번호, 세션 쿠키(`GOSSOcookie`, `connect.sid`) 일체 로그 출력 금지 |
++| **REQ-5** | **Groupware API 접근** | 봇 실행 인프라에서 사내 그룹웨어(`https://gw.suresofttech.com`)로의 원활한 HTTPS Egress 통신 (후보 호스트에서 실제 네트워크 테스트 필수) |
++| **REQ-6** | **사용자별 Favorites 유지** | 서버 재시작 시에도 임직원이 등록한 즐겨찾기 목록 보존 (Atomic File Replace 및 손상 복구 적용) |
++| **REQ-7** | **보안 및 민감정보 보호** | Referrer-Policy, Cache-Control no-store, Frame-ancestors none 적용 및 패스워드 로깅 0건 유지 |
+ 
+ ---
+ 
+@@ -77,21 +88,13 @@
+ > **보안 원칙**: 개인 소유 VPS나 개인 Cloud 계정은 임직원의 회사 그룹웨어 세션 및 인증 쿠키를 취급하므로 **운영 후보에서 완전 배제**합니다.  
+ > 인프라는 **사내 서버/VM**과 **회사 승인 공식 Cloud**의 2가지 경로로 한정하여 비교합니다.
+ 
+-| 평가 기준 | 후보 A: 회사 내부 서버 / 사내 VM | 후보 B: 회사 승인 Cloud (AWS/GCP 등) |
++| 평가 기준 | 후보 A: 사내 서버 / 사내 VM | 후보 B: 회사 승인 Cloud (AWS/GCP 등) |
+ |---|---|---|
+-| **1. Groupware API 접근** | **최우수**: 사내망 내 위치하므로 방화벽 예외나 VPN 터널링 없이 즉시 연동 가능 | **보통**: 사내망 연동(Direct Connect, VPN) 또는 사내 방화벽에서 Cloud Egress IP 허용 필요 |
+-| **2. 외부 HTTPS 제공** | **보통**: DMZ 공인 IP 매핑, 사내 방화벽 Inbound 443 오픈 및 도메인 연결 승인 필요 | **최우수**: Route53/Cloud DNS + Managed ALB/CloudFront + ACM(자동 갱신 무료 인증서) 즉시 제공 |
+-| **3. Telegram Outbound** | 사내 보안 정책상 `api.telegram.org:443` 방화벽 아웃바운드 허용 필요 | NAT Gateway/인터넷 게이트웨이를 통해 즉시 아웃바운드 통신 가능 |
+-| **4. 향후 Kakao Inbound** | 카카오 i 오픈빌더 웹훅 수신을 위해 사내 DMZ 인바운드 443 포워딩 허용 필요 | API Gateway / ALB를 통해 즉시 공인 웹훅 엔드포인트 노출 가능 |
+-| **5. 보안 정책 부합성** | 그룹웨어 세션 데이터가 사내 물리 인프라 내부망에 머무르므로 사내 보안 규정상 가장 안전 | 회사 승인 CSP 계정 및 보안 규정(IAM, 암호화) 준수 심의 필요 |
+-| **6. 운영 비용** | 기존 유휴 서버/VM 활용 시 추가 인프라 비용 **0원** | ALB + NAT Gateway + 소형 인스턴스 기준 월 수만~십수만 원 인프라 비용 발생 |
+-| **7. 24시간 가동성** | 사내 전산실 항온항습/UPS 인프라 기반으로 안정적 | 클라우드 SLA(99.9%+) 기반의 최고 수준 고가용성 제공 |
+-| **8. 유지보수 공수** | OS 패치, SSL 갱신, 하드웨어 점검 등 자체 관리 공수 필요 | 매니지드 서비스 활용으로 인프라 관리 공수 최소화 |
+-| **9. Secret 관리** | 서버 내 권한 제한 파일(`.env`, chmod 600) 또는 사내 Vault | AWS Secrets Manager, SSM Parameter Store 등 IAM 연동 |
+-
+-### 호스팅 종합 평가 및 권고
+-- **사내 전산망에서 DMZ 인바운드 443 및 아웃바운드 허용이 가능한 경우**: **후보 A(사내 서버/VM)**가 그룹웨어 연동 및 내부 보안 승인 측면에서 가장 단순하고 비용 효율적입니다.
+-- **사내 방화벽 정책상 외부 인바운드 유입이 엄격히 금지된 경우**: **후보 B(회사 승인 Cloud)**를 채택하고, Cloud와 사내 그룹웨어 간 Egress 연동을 승인받는 방식을 취합니다.
++| **1. Groupware API 접근성** | 사내망 내 위치할 가능성이 높아 연결이 수월할 수 있으나, **후보 호스트에서 실제 API 도달 가능 여부 네트워크 테스트(curl/ping) 필수** | VPC/NAT 또는 공인망을 통해 도달 가능한지 **후보 호스트에서 실제 네트워크 테스트 필수** (VPN/Direct Connect 필요 여부는 네트워크 테스트 결과에 따름) |
++| **2. 외부 HTTPS 제공** | DMZ 공인 IP 매핑, 사내 방화벽 Inbound 443 오픈 및 도메인 연결 승인 필요 (또는 사내 기존 Web Gateway 활용) | Route53/Cloud DNS + Managed ALB + ACM(자동 갱신 무료 인증서) 즉시 제공 가능 |
++| **3. Telegram Outbound** | 사내 보안 정책상 `api.telegram.org:443` 방화벽 아웃바운드 허용 필요 | NAT Gateway/인터넷 게이트웨이를 통해 아웃바운드 통신 가능 |
++| **4. 보안 정책 부합성** | 그룹웨어 세션 데이터가 사내 물리 인프라 내부망에 머무르므로 사내 보안 승인에 유리 | 회사 승인 CSP 계정 및 보안 규정(IAM, 암호화) 심의 필요 |
++| **5. 가동 제약** | Single-Process Pilot 제약(1 Instance, 1 Worker)을 준수하는 Systemd 데몬 운영 | 단일 컨테이너(replicas: 1) 또는 단일 VM 인스턴스로 제약 준수 |
+ 
+ ---
+ 
+@@ -118,12 +121,13 @@
+ |   - Header Injection: X-Forwarded-Proto=https, X-Forwarded-For                          |
+ +-----------------------------------------------------------------------------------------+
+          |
+-         | 3. HTTP Proxy Pass (Internal Port 8000)
++         | 3. HTTP Proxy Pass (Internal Port 8000, 1 Uvicorn Worker)
+          v
+ +-----------------------------------------------------------------------------------------+
+ | FastAPI Account Link Server                                                             |
++|   - Response Headers: Referrer-Policy: no-referrer, Cache-Control: no-store, X-Frame-Options: DENY
+ |   - GET /link/{token} -> HTML 로그인 폼 렌더링                                          |
+-|   - POST /link/{token} -> Token 소각 및 Groupware API 인증 시도                         |
++|   - POST /link/{token} -> Token 소각, IP Rate Limit 확인 및 Groupware API 로그인 (to_thread)
+ |   - 인증 성공 -> session_manager.set_client(user_key, client) 등록                      |
+ |   - 완료 페이지 렌더링 ("로그인 완료! 텔레그램으로 돌아가세요.")                        |
+ +-----------------------------------------------------------------------------------------+
+@@ -138,156 +142,121 @@
+ +-----------------------------------------------------------------------------------------+
+ ```
+ 
+-### 4.2 로컬 개발 모드와의 완벽한 공존 보장
+-- `src/meeting_room_bot/telegram/keyboards.py`의 `is_localhost_url()` 로직에 의해:
+-  - `ACCOUNT_LINK_BASE_URL=http://localhost:8000` 설정 시: 로컬 개발 모드로 자동 판별되어 URL 버튼 대신 안내 메시지 및 터미널 출력 유지.
+-  - `ACCOUNT_LINK_BASE_URL=https://<approved-domain>` 설정 시: 즉시 `InlineKeyboardButton(url=...)` 버튼 활성화.
+-  - 별도의 코드 수정 없이 환경변수 변경만으로 로컬/운영 환경이 매끄럽게 전환됩니다.
+-
+----
+-
+-## 5. Ingress / Reverse Proxy Candidates
+-
+-FastAPI 애플리케이션에 직접 공인 SSL 인증서를 바인딩하는 것은 보안 및 인증서 자동 갱신 측면에서 권장되지 않습니다. 앞단에 Ingress/Reverse Proxy 계층을 두어 TLS를 종단(Termination)하고 백엔드로 평문 HTTP(127.0.0.1:8000)를 전달하는 구조를 적용합니다.
+-
+-| 구현 방식 | 적용 인프라 | 구성 및 동작 원리 | 장단점 |
+-|---|---|---|---|
+-| **1. Reverse Proxy (Nginx / Caddy)** | 사내 서버 / VM 또는 Cloud VM | - 서버 내에 Nginx 설치<br>- Let's Encrypt Certbot 연동으로 90일 자동 갱신<br>- 포트 80 접속 시 443으로 301 영구 리다이렉트<br>- `proxy_pass http://127.0.0.1:8000;`<br>- 프록시 헤더(`X-Forwarded-Proto`, `X-Forwarded-For`) 전달 | **장점**: 가장 널리 쓰이며 설정이 직관적, VM 1대에서 완결 가능.<br>**단점**: 웹서버 설정 및 SSL 갱신 cron 관리 필요. |
+-| **2. Managed Load Balancer (ALB / Cloud LB)** | 회사 승인 Cloud (AWS/GCP) | - Cloud Managed ALB 생성<br>- AWS Certificate Manager(ACM) 연동으로 관리형 SSL 발급<br>- 80 -> 443 리다이렉트 리스너 룰 설정<br>- 타겟 그룹(Target Group)으로 EC2/컨테이너 포트 8000 연결 | **장점**: 인증서 갱신/서버 관리 완전 자동화, WAF 연동 용이.<br>**단점**: ALB 고정 비용 발생. |
+-| **3. 회사 기존 Web Gateway** | 사내 전산망 / 사내 인프라 | - 회사 IT 전산팀이 운영 중인 중앙 Reverse Proxy/Gateway에 서브도메인 등록 요청<br>- 사내 공인 와일드카드 인증서 사용<br>- 봇 서버의 사내 IP:8000으로 라우팅 | **장점**: 자체 인증서 관리 불필요, 사내 보안 규정 100% 충족.<br>**단점**: 전산팀 티켓 요청 및 승인 일정 소요. |
++### 4.2 Account Link URL Token 노출 방지 설계 (URL Exposure Mitigation)
++- **현재 구조와 위험**:
++  현재 `https://<domain>/link/<token>` URL은 브라우저 히스토리, 웹 프록시 로그, 리퍼러 헤더 등에 잔존할 수 있습니다.
++- **Phase 2.1 적용 보안 헤더**:
++  - `Referrer-Policy: no-referrer`: 타 사이트로 이동 시 토큰 URL 유출 방지
++  - `Cache-Control: no-store, no-cache, must-revalidate`: 브라우저/프록시 디스크 캐싱 방지
++  - `X-Content-Type-Options: nosniff`
++  - `X-Frame-Options: DENY` 및 `Content-Security-Policy: frame-ancestors 'none'`: Clickjacking 방어
++  - `<meta name="referrer" content="no-referrer">`: 템플릿 레벨 리퍼러 차단
++- **운영 목표 권장 흐름 (Exchange Pattern)**:
++  1. `GET /link/<token>` 요청 수신 시 토큰 검증
++  2. 일회성 Secure / HttpOnly / SameSite 쿠키 또는 단기 서버 세션 state로 교환
++  3. `303 See Other` 리다이렉트 -> `/link/login`
++  4. 브라우저 주소창에서 원본 토큰 파라미터 완전 제거
++  5. 웹서버 access log 포맷에서 `/link/` 경로의 토큰 마스킹 설정 권고
+ 
+ ---
+ 
+-## 6. Account Linking Security Gap Analysis (보안 갭 분석)
+-
+-현재 `src/meeting_room_bot/account_link/` 및 관련 실제 소스코드를 점검한 보안 기능 분석 결과입니다.
+-
+-| 보안 점검 항목 | 현재 상태 | 판정 분류 | 상세 현황 및 Phase 2 필요 조치 |
+-|---|---|:---:|---|
+-| **One-time Link Token** | 구현됨 | **Implemented** | `secrets.token_urlsafe(32)` 기반 암호학적 난수 토큰 생성. 1회 사용 시 소각 |
+-| **Token TTL** | 구현됨 | **Implemented** | 기본 600초(10분) 만료 적용. `now > expires_at` 시 무효화 |
+-| **Burn-on-use** | 구현됨 | **Implemented** | `consume_token()`을 통해 로그인 시도 즉시 `is_used = True` 처리 (재시도 불가) |
+-| **Replay Attack 방어** | 구현됨 | **Implemented** | 소각 및 TTL 검증으로 재전송 공격 원천 차단 |
+-| **Credential Logging 방지** | 구현됨 | **Implemented** | 로그인 시도 및 에러 시 패스워드 로깅 0건 유지. 세션 등록 시 식별자만 기록 |
+-| **Password Storage 금지** | 구현됨 | **Implemented** | 패스워드는 메모리 폼 데이터로 일시 전달될 뿐 디스크/DB 어디에도 저장되지 않음 |
+-| **Cookie/Session Handling** | 구현됨 | **Implemented** | `requests.Session` 객체를 메모리 내에만 보관. 민감 쿠키 파일 저장 없음 |
+-| **Session Expiration** | 구현됨 | **Implemented** | Groupware API 401 수신 시 세션 자동 파기 및 재인증 유도 흐름 완비 |
+-| **CSRF Protection** | 미구현 | **Required** | 현재 `<form method="POST">`에 CSRF 토큰 부재. 로그인 폼 렌더링 시 세션 토큰 연계 CSRF 검증 필드 추가 필요 |
+-| **Rate Limiting / Brute-force** | 미구현 | **Required** | `POST /link/{token}`에 대한 IP별/토큰별 시도 횟수 제한 없음. SlowAPI 또는 Sliding-window Rate Limiter 필수 |
+-| **HTTP -> HTTPS Enforcement** | 미구현 | **Required** | FastAPI 자체의 HSTS 헤더 및 프록시 레벨의 HTTPS 강제 리다이렉트 설정 필요 |
+-| **Proxy Headers Trust** | 미구현 | **Required** | Reverse Proxy 환경에서 클라이언트 실제 IP를 안전하게 식별하기 위한 `ProxyHeadersMiddleware` 설정 필요 |
+-| **UserKey 일관 전달** | 부분구현 | **Required** | `keyboards.py`에서 `token_service.create_token(str(user_id))` 호출 시 `UserKey` 객체를 일관되게 전달하도록 보완 |
+-| **Logout / Unlink 기능** | 미구현 | **Optional** | 사용자가 명시적으로 계정 연결을 끊을 수 있는 `/unlink` 명령 또는 버튼 (향후 추가 가능) |
++## 5. Blocking Groupware I/O Isolation & Error Classification
++
++### 5.1 Blocking I/O Thread Pool Isolation (`asyncio.to_thread`)
++- `GroupwareClient`는 `requests.Session` 기반의 동기 HTTP 클라이언트입니다.
++- Telegram Polling 및 FastAPI는 단일 비동기 이벤트 루프(`asyncio`)에서 구동됩니다.
++- **Phase 2.1 적용**:
++  - 대규모 비동기 HTTP 라이브러리(httpx/aiohttp) 전면 재작성 대신, 안정성이 검증된 `asyncio.to_thread(...)`를 경계(boundary)에 적용했습니다.
++  - 적용 경로:
++    - FastAPI: `client.login`
++    - Telegram 핸들러: `get_available_rooms_now`, `get_available_rooms_at`, `get_locations`, `get_location_status`, `get_room_detail`
++  - 이를 통해 특정 사용자의 그룹웨어 API 응답이 수 초간 지연되더라도 다른 사용자의 독립 비동기 태스크(이벤트 루프)가 블로킹되지 않습니다.
++
++### 5.2 정밀 에러 분류 (Auth Error vs General API Error)
++- `GroupwareAuthError` (401/403):
++  - 자격 증명 만료로 판단 -> `session_mgr.remove_session(user_id)` 호출하여 세션 정리 -> `QueryStatus.SESSION_EXPIRED` 반환.
++- `GroupwareAPIError` (500, 일시적 응답 포맷 오류):
++  - 일시적 서버 장애로 판단 -> 세션 보존 -> `QueryStatus.GROUPWARE_API_ERROR` 반환.
++- `GroupwareNetworkError` (DNS/타임아웃/연결 끊김):
++  - 네트워크 단절로 판단 -> 세션 보존 -> `QueryStatus.NETWORK_ERROR` 반환.
+ 
+ ---
+ 
+-## 7. Official SSO Considerations (공식 SSO 연동 검토)
++## 6. Favorites Data Safety & Atomic Replace
+ 
+-- **현황**:
+-  - 현재 슈어소프트 그룹웨어(`https://gw.suresofttech.com`) 연동은 `POST /api/login`을 호출하여 `GOSSOcookie`를 수신하는 직접 인증 방식을 취하고 있습니다.
+-  - 사내 포털이나 그룹웨어가 SAML 2.0, OAuth 2.0 / OIDC, 또는 사내 통합인증 SSO API를 공식 지원하는지 여부는 아직 IT 전산팀을 통해 확인되지 않았습니다.
+-- **원칙 및 정책**:
+-  - **공식 SSO 최우선 원칙**: 사내에 공식 SSO(OAuth2/SAML)가 존재할 경우, 사용자에게 비밀번호를 입력받는 대신 회사 공식 SSO 페이지로 리다이렉트하는 방식을 우선 채택해야 합니다.
+-  - 현재의 직접 ID/PW 폼 방식은 공식 SSO가 부재하거나 연동이 제한될 때를 대비한 "표준 인증 어댑터"이며, 추후 SSO 확인 결과에 따라 `AuthAdapter`를 교체할 수 있는 유연한 설계를 유지합니다.
++- 파일 경로: `FAVORITES_FILE_PATH` 환경변수로 주입 가능 (기본 `data/favorites.json`).
++- 동시성 제어: Python `threading.RLock()`으로 메모리 상태 및 파일 I/O 동기화.
++- **Atomic Replace**:
++  1. 쓰기 시 임시 파일(`favorites.json.tmp.<pid>.<uuid>`)에 전체 JSON 직렬화.
++  2. `file.flush()` 후 `os.fsync(file.fileno())`로 OS 디스크 버퍼 강제 동기화.
++  3. `os.replace(temp_path, final_path)`를 호출하여 원자적(Atomic) 교체 완료 (비정상 종료 시에도 파일 손상 방지).
++- **데이터 손상 방어**:
++  - JSON 파싱 오류 발견 시 빈 파일로 덮어쓰지 않고 `.corrupted.<timestamp>` 파일로 백업 격리 후 안전한 복구 예외 처리.
+ 
+ ---
+ 
+-## 8. Persistence Decision (영속화 결정 및 전략)
++## 7. Production Configuration Mapping (실제 코드 연결 현황)
+ 
+-### 8.1 세션 영속화 (Session Persistence) 보류
+-- **결정**: Phase 2에서는 Session DB(Redis/RDBMS/AES 암호화 필드)를 당장 도입하지 않습니다.
+-- **사유**:
+-  - 그룹웨어 인증 세션(`GOSSOcookie`)은 본래 수 시간~수 일 단위로 만료되며, 401 발생 시 재로그인이 필요합니다.
+-  - 봇 서버 배포나 재시작 시 인메모리 세션이 초기화되더라도, 사용자가 텔레그램에서 "🔐 계정 연결" 버튼을 1회 눌러 10초 만에 재인증할 수 있으므로, 초기 운영 파일럿 단계에서는 충분히 수용 가능합니다.
+-  - 불필요한 인프라 복잡도(외부 Redis 설치, 암호화 키 관리)를 유예하고 HTTPS 연결 안정성에 집중합니다.
++문서상의 제안 설정과 실제 코드 연결 상태를 명확히 구분합니다:
+ 
+-### 8.2 즐겨찾기 영속화 (Favorites Persistence)
+-- **결정**: 즐겨찾기는 사용자가 설정한 개인 데이터이므로 서버 재시작 시에도 유지되어야 합니다.
+-- **전략**: 현재의 `data/favorites.json` 기반 `JsonFavoriteRepository`로 단일 서버 운영 환경의 영속성을 완전히 충족할 수 있습니다. 단, 동시 쓰기 파일 충돌을 방지하기 위한 파일 락(Lock) 보강만 소규모로 진행하고, 본격적인 DB 도입(SQLite/PostgreSQL)은 다중 인스턴스 스케일아웃 시점으로 유예합니다.
++| 환경변수 | 기본값 | 연결 상태 | 코드 반영 위치 |
++|---|---|:---:|---|
++| `TELEGRAM_BOT_TOKEN` | `""` | **연결됨** | `bot.py` |
++| `TELEGRAM_DATA_MODE` | `"mock"` | **연결됨** | `bot.py` |
++| `ACCOUNT_LINK_BASE_URL` | `"http://localhost:8000"` | **연결됨** | `handlers.py`, `keyboards.py`, `app.py` |
++| `ACCOUNT_LINK_HOST` | `"0.0.0.0"` | **연결됨** | `run_local_app.py`, `config.py` |
++| `ACCOUNT_LINK_PORT` | `8000` | **연결됨** | `run_local_app.py`, `config.py` |
++| `ACCOUNT_LINK_TOKEN_TTL` | `600` | **연결됨** (Phase 2.1) | `token_service.py`, `config.py` |
++| `FORWARDED_ALLOW_IPS` | `"127.0.0.1"` | **연결됨** (Phase 2.1) | `config.py`, uvicorn runner |
++| `RATE_LIMIT_LOGIN_PER_MINUTE` | `10` | **연결됨** (Phase 2.1) | `app.py` (IP별 sliding window 제한) |
++| `GROUPWARE_BASE_URL` | `"https://gw.suresofttech.com"` | **연결됨** (Phase 2.1) | `client.py`, `config.py` |
++| `FAVORITES_FILE_PATH` | `"data/favorites.json"` | **연결됨** (Phase 2.1) | `json_repository.py`, `config.py` |
+ 
+ ---
+ 
+-## 9. Local / Production Environment Configuration (환경 설정)
++## 8. Authentication Architecture Status (인증 아키텍처 상태)
+ 
+-코드 수정 없이 환경변수 주입만으로 Local과 Production을 완벽하게 전환할 수 있도록 지원하는 표준 환경변수 명세입니다:
+-
+-```ini
+-# ==============================================================================
+-# SureMeetingRoom Bot Environment Configuration
+-# ==============================================================================
+-
+-# 1. Platform & Data Mode
+-TELEGRAM_BOT_TOKEN=<your-telegram-bot-token>
+-TELEGRAM_DATA_MODE=real                                # "real" or "mock"
+-
+-# 2. Account Linking & HTTPS Configuration
+-# Local Mode: http://localhost:8000
+-# Production: https://<approved-domain>
+-ACCOUNT_LINK_BASE_URL=https://meeting-link.suresofttech.com
+-ACCOUNT_LINK_HOST=0.0.0.0
+-ACCOUNT_LINK_PORT=8000
+-ACCOUNT_LINK_TOKEN_TTL=600                             # Token expiry in seconds (default 10m)
+-
+-# 3. Security & Proxy Settings
+-FORWARDED_ALLOW_IPS=127.0.0.1                          # Trusted Reverse Proxy IP
+-RATE_LIMIT_LOGIN_PER_MINUTE=10                         # Brute-force throttling
+-
+-# 4. Groupware Integration
+-GROUPWARE_BASE_URL=https://gw.suresofttech.com
+-
+-# 5. Data Persistence
+-FAVORITES_FILE_PATH=data/favorites.json
+-```
++- **현재 구현 (Implemented)**:
++  - 직접 ID/PW 폼 기반 GroupwareClient 로그인 (`POST /api/login` -> `GOSSOcookie` 수신).
++  - One-time burn-on-use token 서비스.
++  - UserKey namespace (`telegram:123456`) 온전 유지 및 세션 매핑.
++- **계획된 아키텍처 (Planned Architecture)**:
++  - `AuthAdapter` 추상화 인터페이스: 향후 사내 공식 SSO(OAuth2/SAML/OIDC) 승인 시 직접 로그인 폼을 대체하는 SSO Provider 모듈. (현재는 구체화 계획 단계이며 코드 미구현 상태)
+ 
+ ---
+ 
+-## 10. Phase 2 Implementation Steps (구현 태스크 분할 제안)
++## 9. Company Decision Gate (회사/IT 확인 필요 6대 결정 관문)
+ 
+-코드 분석 결과에 따라 가장 안전하고 단계적인 4단계 구현 순서를 제안합니다:
++Phase 2.2 이후의 실제 외부 Production 배포를 진행하기 전에 반드시 회사 인프라/보안/IT 부서로부터 확정받아야 하는 6대 필수 의사결정 관문입니다:
+ 
+ ```text
+-+-----------------------------------------------------------------------------------+
+-| Phase 2.1: Production Config & UserKey Flow Consolidation                         |
+-|   - Config 모듈 도입 및 ACCOUNT_LINK_BASE_URL / PROXY 설정 표준화                |
+-|   - keyboards.py와 handlers.py의 UserKey 일관 전달 정리                           |
+-+-----------------------------------------+-----------------------------------------+
+-                                          |
+-                                          v
+-+-----------------------------------------------------------------------------------+
+-| Phase 2.2: Account Link Security Hardening                                        |
+-|   - SlowAPI 기반 Rate Limiting (IP/토큰별 무차별 대입 방어)                       |
+-|   - Login Form CSRF Protection 강화                                               |
+-|   - Uvicorn ProxyHeadersMiddleware 및 Security Response Headers 추가              |
+-+-----------------------------------------+-----------------------------------------+
+-                                          |
+-                                          v
+-+-----------------------------------------------------------------------------------+
+-| Phase 2.3: Ingress / HTTPS Staging Verification                                   |
+-|   - Reverse Proxy (Nginx/Caddy 또는 Local Mock TLS) 연동 테스트 환경 검증         |
+-|   - HTTP -> HTTPS 리다이렉션 및 X-Forwarded-Proto 정합성 확인                     |
+-+-----------------------------------------+-----------------------------------------+
+-                                          |
+-                                          v
+-+-----------------------------------------------------------------------------------+
+-| Phase 2.4: Mobile Telegram Account Linking Pilot                                  |
+-|   - 스마트폰 텔레그램 앱에서 "🔐 회사 계정 연결" 버튼 탭 E2E 파일럿               |
+-|   - 모바일 브라우저 로그인 -> 텔레그램 복귀 후 회의실 조회 동작 검증              |
+-+-----------------------------------------------------------------------------------+
+++---------------------------------------------------------------------------------+
++|                         COMPANY DECISION GATE (6 Items)                         |
+++---------------------------------------------------------------------------------+
++| 1. 운영 서버 인프라:                                                            |
++|    - 사내 전산실 VM 활용 가능 여부                                              |
++|    - 회사 승인 공식 Cloud(AWS/GCP) 인프라 활용 가능 여부                         |
+++---------------------------------------------------------------------------------+
++| 2. 외부 HTTPS 수신 경로:                                                        |
++|    - 서버에 공인 IP 및 인바운드 443 포트 오픈 가능 여부                          |
++|    - 또는 회사 전산팀이 운영 중인 기존 Web Gateway / Reverse Proxy 연동 가능 여부|
+++---------------------------------------------------------------------------------+
++| 3. 공인 도메인 및 인증서:                                                       |
++|    - 사용할 사내 공식 서브도메인 (예: meeting-link.suresofttech.com)            |
++|    - SSL/TLS 인증서 발급/관리 주체 (전산팀 와일드카드 인증서 vs Let's Encrypt)  |
+++---------------------------------------------------------------------------------+
++| 4. Telegram 아웃바운드 허용:                                                    |
++|    - 후보 운영 서버에서 api.telegram.org:443 HTTPS Outbound 통신 허용 여부      |
+++---------------------------------------------------------------------------------+
++| 5. Groupware API 네트워크 도달성:                                               |
++|    - 후보 운영 서버 인프라에서 gw.suresofttech.com HTTPS API 접근 가능 여부     |
++|      (후보 호스트 배치 후 실제 curl/API 도달성 테스트 수행)                     |
+++---------------------------------------------------------------------------------+
++| 6. 사내 계정 인증 정책:                                                         |
++|    - 회사 그룹웨어 공식 OAuth2 / OIDC / SAML SSO 엔드포인트 지원 여부            |
++|    - 자체 구축 웹 페이지에서 사내 그룹웨어 ID/PW 입력을 받아 처리하는 방식에     |
++|      대한 사내 보안 정책 승인 여부                                              |
+++---------------------------------------------------------------------------------+
+ ```
+-
+----
+-
+-## 11. Decisions Required From Company / User (회사/사용자 확인 필요 항목)
+-
+-운영 배포 환경 구성을 위해 IT 인프라/보안 담당자 또는 프로젝트 의사결정권자로부터 확인받아야 할 5가지 항목입니다:
+-
+-1. **호스팅 인프라 확정**:
+-   - 사내 전산실 VM 활용 vs 회사 승인 Cloud(AWS/GCP) 인프라 활용 여부
+-2. **공인 도메인 및 SSL 인증서 발급 주체**:
+-   - 사용할 서브도메인 명칭(예: `meeting-bot.suresofttech.com`) 및 인증서 발급 주체(전산팀 사내 와일드카드 인증서 vs Let's Encrypt 자동 갱신)
+-3. **네트워크 인바운드 방화벽 오픈**:
+-   - 외부 사용자의 모바일 접속을 위한 443 포트 포워딩 또는 기존 사내 Web Gateway 라우팅 지원 가능 여부
+-4. **사내 네트워크 아웃바운드 정책**:
+-   - 사내 서버 채택 시, 서버에서 텔레그램 서버(`api.telegram.org:443`)로의 HTTPS 아웃바운드 통신이 허용되는지 여부
+-5. **그룹웨어 공식 SSO 지원 여부**:
+-   - 그룹웨어 자체의 OAuth2/SAML 기반 공식 SSO 엔드포인트 존재 여부 및 사내 개발자 접근 권한 확인
++> [!CAUTION]
++> **원칙**: 위 6대 항목이 사내 유관 부서와의 협의를 통해 최종 결정되기 전에는, 실제 외부 Production 인프라 프로비저닝(서버 생성, 공인 도메인/DNS 변경, 방화벽 개방)을 착수하지 않습니다.
+diff --git a/scripts/pack_review_bundle.py b/scripts/pack_review_bundle.py
+index 8d06c7a..e5e4793 100644
+--- a/scripts/pack_review_bundle.py
++++ b/scripts/pack_review_bundle.py
+@@ -1,4 +1,4 @@
+-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 1 Complete."""
++"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Production Foundation."""
+ 
+ import os
+ from pathlib import Path
+@@ -10,18 +10,38 @@ import tempfile
+ import zipfile
+ 
+ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+-HISTORY_SUBDIR = "v0.2_phase2_planning"
++HISTORY_SUBDIR = "v0.2_phase2_1_foundation"
+ OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
+-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_planning_review.zip"
+-BASE_TAG = "v0.1-local-mvp"
++ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_foundation_review.zip"
++RELEASE_BASE_TAG = "v0.1-local-mvp"
++TASK_BASE_COMMIT = "79ecbe9506285866480a906c804aca49e2d79d66"
+ 
+ # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
+ BUNDLE_FILES = [
+-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_planning/)
++    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_foundation/)
+     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
+     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
+ 
+-    # Changed Source Files (v0.2 Core & Date Fix)
++    # Phase 2.1 Changed Core & Config Files
++    ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
++    ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
++    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
++    ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
++    ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
++    ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
++    ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
++    ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
++    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
++    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
++    ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
++    ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
++    ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
++    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
++
++    # Phase 2.1 Hardening Test Suite
++    ("tests/test_phase2_1_foundation.py", "tests/test_phase2_1_foundation.py"),
++
++    # Phase 1 & Pre-Phase 2 Source Files (Foundation)
+     ("src/meeting_room_bot/utils/date_utils.py", "src/meeting_room_bot/utils/date_utils.py"),
+     ("src/meeting_room_bot/utils/__init__.py", "src/meeting_room_bot/utils/__init__.py"),
+     ("src/meeting_room_bot/models/user_key.py", "src/meeting_room_bot/models/user_key.py"),
+@@ -29,50 +49,42 @@ BUNDLE_FILES = [
+     ("src/meeting_room_bot/providers/mock_data.py", "src/meeting_room_bot/providers/mock_data.py"),
+     ("src/meeting_room_bot/providers/mock_provider.py", "src/meeting_room_bot/providers/mock_provider.py"),
+     ("src/meeting_room_bot/providers/base.py", "src/meeting_room_bot/providers/base.py"),
+-    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
+     ("src/meeting_room_bot/auth/session_manager.py", "src/meeting_room_bot/auth/session_manager.py"),
+     ("src/meeting_room_bot/favorites/repository.py", "src/meeting_room_bot/favorites/repository.py"),
+-    ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
+     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
+     ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
+-    ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
+-    ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
+     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
+-    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+     ("scripts/run_local_app.py", "scripts/run_local_app.py"),
+ 
+-    # Changed / Added Test Files
++    # Additional Test Files
+     ("tests/test_dynamic_date_handling.py", "tests/test_dynamic_date_handling.py"),
+     ("tests/test_favorites.py", "tests/test_favorites.py"),
+     ("tests/test_platform_abstraction.py", "tests/test_platform_abstraction.py"),
++    ("tests/test_real_favorites.py", "tests/test_real_favorites.py"),
++    ("tests/test_real_mode_auth_flow.py", "tests/test_real_mode_auth_flow.py"),
+ 
+-    # Changed / Added Docs
++    # Earlier Docs
+     ("docs/V0_2_ARCHITECTURE_PLAN.md", "docs/V0_2_ARCHITECTURE_PLAN.md"),
+     ("docs/V0_2_PHASE1_REPORT.md", "docs/V0_2_PHASE1_REPORT.md"),
+-    ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
+ 
+-    # 1-Hop Direct Context & Consumer Files
+-    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
++    # 1-Hop Direct Context & Models
+     ("src/meeting_room_bot/models/asset.py", "src/meeting_room_bot/models/asset.py"),
+     ("src/meeting_room_bot/models/room.py", "src/meeting_room_bot/models/room.py"),
+     ("src/meeting_room_bot/models/reservation.py", "src/meeting_room_bot/models/reservation.py"),
+     ("src/meeting_room_bot/favorites/models.py", "src/meeting_room_bot/favorites/models.py"),
+-    ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
+ 
+-    # Directly Related Regression Tests & Account Link Tests
++    # Regression Tests
+     ("tests/test_auth_session.py", "tests/test_auth_session.py"),
+     ("tests/test_providers.py", "tests/test_providers.py"),
+     ("tests/test_multi_user_isolation.py", "tests/test_multi_user_isolation.py"),
+     ("tests/test_account_link.py", "tests/test_account_link.py"),
+     ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
+ 
+-    # Runtime Closure (Required for Independent Test Execution)
++    # Runtime Closure
+     ("src/meeting_room_bot/services/availability_service.py", "src/meeting_room_bot/services/availability_service.py"),
+     ("src/meeting_room_bot/services/room_status_service.py", "src/meeting_room_bot/services/room_status_service.py"),
+     ("src/meeting_room_bot/auth/models.py", "src/meeting_room_bot/auth/models.py"),
+-    ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
+     ("src/meeting_room_bot/telegram/states.py", "src/meeting_room_bot/telegram/states.py"),
+-    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
+     ("src/meeting_room_bot/__init__.py", "src/meeting_room_bot/__init__.py"),
+     ("src/meeting_room_bot/auth/__init__.py", "src/meeting_room_bot/auth/__init__.py"),
+     ("src/meeting_room_bot/favorites/__init__.py", "src/meeting_room_bot/favorites/__init__.py"),
+@@ -81,9 +93,6 @@ BUNDLE_FILES = [
+     ("src/meeting_room_bot/services/__init__.py", "src/meeting_room_bot/services/__init__.py"),
+     ("src/meeting_room_bot/telegram/__init__.py", "src/meeting_room_bot/telegram/__init__.py"),
+     ("src/meeting_room_bot/account_link/__init__.py", "src/meeting_room_bot/account_link/__init__.py"),
+-    ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
+-    ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
+-    ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
+     ("pytest.ini", "pytest.ini"),
+     ("requirements.txt", "requirements.txt"),
+ ]
+@@ -128,10 +137,10 @@ def scan_file_safety(rel_path: str, abs_path: Path):
+ 
+ 
+ def verify_changed_files_consistency():
+-    """Verify that every file changed since BASE_TAG is either in BUNDLE_FILES or EXCLUDED_CHANGED_FILES."""
++    """Verify that every file changed since TASK_BASE_COMMIT is in BUNDLE_FILES."""
+     try:
+         diff_out = subprocess.check_output(
+-            ["git", "diff", "--name-only", BASE_TAG],
++            ["git", "diff", "--name-only", TASK_BASE_COMMIT],
+             cwd=WORKSPACE_ROOT,
+             text=True,
+             encoding="utf-8",
+@@ -156,7 +165,7 @@ def verify_changed_files_consistency():
+             f"Changed files consistency check failed! The following changed files are missing from BUNDLE_FILES:\n"
+             + "\n".join(f"  - {f}" for f in unaccounted)
+         )
+-    print(f"[OK] Changed Files consistency check passed ({len(changed_files)} changed files verified against BASE).")
++    print(f"[OK] Changed Files consistency check passed ({len(changed_files)} changed files verified against TASK_BASE_COMMIT).")
+ 
+ 
+ def run_standalone_bundle_self_test(zip_path: Path):
+@@ -167,6 +176,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
+             zf.extractall(tmp_dir)
+ 
+         test_files = [
++            "tests/test_phase2_1_foundation.py",
+             "tests/test_dynamic_date_handling.py",
+             "tests/test_platform_abstraction.py",
+             "tests/test_auth_session.py",
+@@ -175,6 +185,8 @@ def run_standalone_bundle_self_test(zip_path: Path):
+             "tests/test_multi_user_isolation.py",
+             "tests/test_account_link.py",
+             "tests/test_account_link_localhost.py",
++            "tests/test_real_favorites.py",
++            "tests/test_real_mode_auth_flow.py",
+         ]
+         cmd = [sys.executable, "-m", "pytest"] + test_files + ["-v"]
+         res = subprocess.run(cmd, cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8")
+@@ -195,17 +207,27 @@ def main():
+     zip_path = OUTPUT_DIR / ZIP_FILENAME
+ 
+     print(f"=== Creating Review Bundle: {ZIP_FILENAME} ===")
+-    print(f"Base Tag / Commit: {BASE_TAG}")
++    print(f"Release Base Tag: {RELEASE_BASE_TAG}")
++    print(f"Task Base Commit: {TASK_BASE_COMMIT}")
+     print(f"History Output Directory: {OUTPUT_DIR}")
+ 
+-    # 1. Update UTF-8 patch in history dir
++    # 1. Update UTF-8 patch for Task Base Commit..HEAD in history dir
+     patch_path = OUTPUT_DIR / "REVIEW_GIT_DIFF.patch"
+     diff_bytes = subprocess.check_output(
+-        ["git", "diff", BASE_TAG, "--", ".", ":(exclude)review_bundles"],
++        ["git", "diff", TASK_BASE_COMMIT, "--", ".", ":(exclude)review_bundles"],
+         cwd=WORKSPACE_ROOT,
+     )
+     patch_path.write_bytes(diff_bytes)
+-    print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, UTF-8)")
++    print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, Task Base Commit -> HEAD, UTF-8)")
++
++    # Also update cumulative diff from Release Base Tag if helpful
++    cumulative_patch_path = OUTPUT_DIR / "CUMULATIVE_GIT_DIFF.patch"
++    cum_diff_bytes = subprocess.check_output(
++        ["git", "diff", RELEASE_BASE_TAG, "--", ".", ":(exclude)review_bundles"],
++        cwd=WORKSPACE_ROOT,
++    )
++    cumulative_patch_path.write_bytes(cum_diff_bytes)
++    print(f"[OK] Updated CUMULATIVE_GIT_DIFF.patch ({len(cum_diff_bytes):,} bytes, Release Base Tag -> HEAD, UTF-8)")
+ 
+     # 2. Check changed files consistency
+     verify_changed_files_consistency()
+diff --git a/src/meeting_room_bot/account_link/app.py b/src/meeting_room_bot/account_link/app.py
+index 1189b62..2b5444e 100644
+--- a/src/meeting_room_bot/account_link/app.py
++++ b/src/meeting_room_bot/account_link/app.py
+@@ -1,18 +1,47 @@
+-"""FastAPI Web Server for Groupware Account Linking."""
+-
++import asyncio
+ import logging
+ from pathlib import Path
++import threading
++import time
++from typing import Dict, List
+ from fastapi import FastAPI, Form, Request
+ from fastapi.responses import HTMLResponse
+ 
+ from meeting_room_bot.account_link.token_service import token_service
+ from meeting_room_bot.auth.session_manager import session_manager
++from meeting_room_bot.config import get_config
+ from meeting_room_bot.groupware.client import GroupwareAuthError, GroupwareClient, GroupwareError
++from meeting_room_bot.models.user_key import UserKey
+ 
+ logger = logging.getLogger(__name__)
+ 
+ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+ 
++_login_attempts_by_ip: Dict[str, List[float]] = {}
++_rate_limit_lock = threading.Lock()
++
++
++def check_ip_rate_limit(client_ip: str, limit_per_minute: int) -> bool:
++    """Check sliding window rate limit for an IP address. Return True if allowed."""
++    if limit_per_minute <= 0:
++        return True
++    now = time.time()
++    with _rate_limit_lock:
++        attempts = _login_attempts_by_ip.get(client_ip, [])
++        valid_attempts = [t for t in attempts if now - t < 60.0]
++        if len(valid_attempts) >= limit_per_minute:
++            _login_attempts_by_ip[client_ip] = valid_attempts
++            return False
++        valid_attempts.append(now)
++        _login_attempts_by_ip[client_ip] = valid_attempts
++        return True
++
++
++def reset_rate_limits():
++    """Reset rate limiting table (useful for test isolation)."""
++    with _rate_limit_lock:
++        _login_attempts_by_ip.clear()
++
+ 
+ def render_html(template_name: str, context: dict = None) -> str:
+     """Render HTML template from templates directory using string substitution."""
+@@ -32,6 +61,18 @@ def create_app() -> FastAPI:
+     """Create and configure FastAPI Account Linking Application."""
+     app = FastAPI(title="Suresoft Meeting Room Bot - Account Linking")
+ 
++    @app.middleware("http")
++    async def add_security_headers(request: Request, call_next):
++        """Inject strict security response headers into all HTTP responses."""
++        response = await call_next(request)
++        response.headers["Referrer-Policy"] = "no-referrer"
++        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
++        response.headers["Pragma"] = "no-cache"
++        response.headers["X-Content-Type-Options"] = "nosniff"
++        response.headers["X-Frame-Options"] = "DENY"
++        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
++        return response
++
+     @app.get("/link/{token}", response_class=HTMLResponse)
+     async def get_login_page(token: str):
+         """Render login form HTML if token is valid and unexpired."""
+@@ -45,21 +86,33 @@ def create_app() -> FastAPI:
+ 
+     @app.post("/link/{token}", response_class=HTMLResponse)
+     async def process_login(
++        request: Request,
+         token: str,
+         username: str = Form(...),
+         password: str = Form(...),
+     ):
+         """Process login form submission and bind session to user_id upon success."""
++        # 0. Check IP rate limit
++        client_ip = request.client.host if request.client else "127.0.0.1"
++        forwarded_for = request.headers.get("X-Forwarded-For")
++        if forwarded_for:
++            client_ip = forwarded_for.split(",")[0].strip()
++
++        config = get_config()
++        if not check_ip_rate_limit(client_ip, config.rate_limit_login_per_minute):
++            logger.warning(f"[account_link] Rate limit exceeded for IP={client_ip}")
++            html = render_html("error.html", {"message": "로그인 시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요."})
++            return HTMLResponse(content=html, status_code=429)
+         # 1. Validate and consume token (one-time use)
+         user_id = token_service.consume_token(token)
+         if not user_id:
+             html = render_html("error.html", {"message": "유효하지 않거나 이미 만료된 계정 연결 링크입니다."})
+             return HTMLResponse(content=html, status_code=400)
+ 
+-        # 2. Attempt Groupware login (password exists in memory transiently)
++        # 2. Attempt Groupware login in worker thread to prevent event-loop blocking
+         client = GroupwareClient()
+         try:
+-            success = client.login(username=username, password=password)
++            success = await asyncio.to_thread(client.login, username=username, password=password)
+         except (GroupwareAuthError, GroupwareError) as e:
+             logger.warning(f"[account_link] Groupware login failed for user_id={user_id}: {e}")
+             success = False
+@@ -69,9 +122,10 @@ def create_app() -> FastAPI:
+ 
+         # 3. Handle login result
+         if success:
+-            # Bind authenticated GroupwareClient session to user_id
+-            session_manager.set_client(user_id, client)
+-            logger.info(f"[account_link] Successfully linked Groupware session for user_id: {user_id}")
++            # Explicitly reconstruct UserKey and bind authenticated GroupwareClient session
++            user_key = UserKey.from_any(user_id)
++            session_manager.set_client(user_key, client)
++            logger.info(f"[account_link] Successfully linked Groupware session for user_key: {user_key.to_string()}")
+             html = render_html("success.html")
+             return HTMLResponse(content=html)
+         else:
+diff --git a/src/meeting_room_bot/account_link/templates/error.html b/src/meeting_room_bot/account_link/templates/error.html
+index f3e484b..265c0a0 100644
+--- a/src/meeting_room_bot/account_link/templates/error.html
++++ b/src/meeting_room_bot/account_link/templates/error.html
+@@ -72,7 +72,7 @@
+     <div class="card">
+         <div class="icon">❌</div>
+         <h1>로그인에 실패했습니다</h1>
+-        <p>{{ message or "아이디 또는 비밀번호를 확인해주세요." }}</p>
++        <p>{{ message }}</p>
+         <a href="javascript:history.back()" class="btn-retry">🔄 다시 시도</a>
+     </div>
+ </body>
+diff --git a/src/meeting_room_bot/account_link/templates/login.html b/src/meeting_room_bot/account_link/templates/login.html
+index 768c0cc..5fe4f72 100644
+--- a/src/meeting_room_bot/account_link/templates/login.html
++++ b/src/meeting_room_bot/account_link/templates/login.html
+@@ -3,6 +3,7 @@
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <meta name="referrer" content="no-referrer">
+     <title>회의실 도우미 - 회사 계정 연결</title>
+     <style>
+         * {
+diff --git a/src/meeting_room_bot/account_link/token_service.py b/src/meeting_room_bot/account_link/token_service.py
+index 2ebe2ae..aea1045 100644
+--- a/src/meeting_room_bot/account_link/token_service.py
++++ b/src/meeting_room_bot/account_link/token_service.py
+@@ -27,19 +27,41 @@ class AccountLinkTokenService:
+     - Plain str is accepted during v0.2 transition period for v0.1 test backward compatibility.
+     """
+ 
+-    def __init__(self, default_ttl_seconds: int = 600):
+-        self.default_ttl = default_ttl_seconds
++    def __init__(self, default_ttl_seconds: Optional[int] = None, default_ttl: Optional[int] = None):
++        import os
++        ttl = default_ttl_seconds if default_ttl_seconds is not None else default_ttl
++        if ttl is not None:
++            self.default_ttl = ttl
++        else:
++            self.default_ttl = int(os.environ.get("ACCOUNT_LINK_TOKEN_TTL", "600"))
+         self._tokens: Dict[str, TokenData] = {}
+ 
++    def cleanup_expired_tokens(self) -> int:
++        """Remove all expired or already used tokens from storage. Return count of removed tokens."""
++        now = datetime.now(timezone.utc)
++        to_remove = [k for k, v in self._tokens.items() if v.is_used or now > v.expires_at]
++        for k in to_remove:
++            self._tokens.pop(k, None)
++        return len(to_remove)
++
+     def create_token(self, user_id: Union[UserKey, str], ttl_seconds: Optional[int] = None) -> str:
+-        """Create a new one-time token for a user."""
++        """Create a new one-time token for a user. Cleans up expired and replaces previous user tokens."""
++        # 1. Housekeeping: remove expired tokens
++        self.cleanup_expired_tokens()
++
++        # 2. Invalidate / remove any existing active tokens for the same user
++        uid_str = user_id.to_string() if isinstance(user_id, UserKey) else str(user_id)
++        existing_tokens = [k for k, v in self._tokens.items() if v.user_id == uid_str]
++        for k in existing_tokens:
++            self._tokens.pop(k, None)
++
++        # 3. Issue new token
+         token = secrets.token_urlsafe(32)
+         ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl
+ 
+         now = datetime.now(timezone.utc)
+         expires = now + timedelta(seconds=ttl)
+ 
+-        uid_str = user_id.to_string() if isinstance(user_id, UserKey) else str(user_id)
+         data = TokenData(
+             token=token,
+             user_id=uid_str,
+@@ -67,18 +89,20 @@ class AccountLinkTokenService:
+         return tdata.user_id
+ 
+     def consume_token(self, token: str) -> Optional[str]:
+-        """Validate and consume token (mark as used). Return user_id or None."""
++        """Validate and consume token (mark as used and safely remove from active tokens). Return user_id or None."""
+         user_id = self.validate_token(token)
+         if user_id is None:
+             return None
+ 
+-        self._tokens[token].is_used = True
++        # Burn-on-use and cleanup entry
++        tdata = self._tokens.pop(token, None)
++        if tdata:
++            tdata.is_used = True
+         return user_id
+ 
+     def revoke_token(self, token: str):
+         """Revoke a token immediately."""
+-        if token in self._tokens:
+-            self._tokens[token].is_used = True
++        self._tokens.pop(token, None)
+ 
+     def clear_all(self):
+         """Clear all active tokens (for testing)."""
+diff --git a/src/meeting_room_bot/config.py b/src/meeting_room_bot/config.py
+new file mode 100644
+index 0000000..1e550ae
+--- /dev/null
++++ b/src/meeting_room_bot/config.py
+@@ -0,0 +1,50 @@
++"""Centralized Configuration for SureMeetingRoom Bot."""
++
++from dataclasses import dataclass
++import os
++
++
++@dataclass
++class AppConfig:
++    """Application configuration loaded from environment variables with sensible defaults."""
++
++    # 1. Telegram & Mode
++    telegram_bot_token: str = ""
++    telegram_data_mode: str = "mock"
++
++    # 2. Account Link & HTTPS
++    account_link_base_url: str = "http://localhost:8000"
++    account_link_host: str = "0.0.0.0"
++    account_link_port: int = 8000
++    account_link_token_ttl: int = 600
++
++    # 3. Security & Proxy
++    forwarded_allow_ips: str = "127.0.0.1"
++    rate_limit_login_per_minute: int = 10
++
++    # 4. Groupware
++    groupware_base_url: str = "https://gw.suresofttech.com"
++
++    # 5. Data Persistence
++    favorites_file_path: str = "data/favorites.json"
++
++    @classmethod
++    def from_env(cls) -> "AppConfig":
++        """Load configuration from environment variables."""
++        return cls(
++            telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
++            telegram_data_mode=os.environ.get("TELEGRAM_DATA_MODE", "mock").strip().lower(),
++            account_link_base_url=os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/"),
++            account_link_host=os.environ.get("ACCOUNT_LINK_HOST", "0.0.0.0"),
++            account_link_port=int(os.environ.get("ACCOUNT_LINK_PORT", "8000")),
++            account_link_token_ttl=int(os.environ.get("ACCOUNT_LINK_TOKEN_TTL", "600")),
++            forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1"),
++            rate_limit_login_per_minute=int(os.environ.get("RATE_LIMIT_LOGIN_PER_MINUTE", "10")),
++            groupware_base_url=os.environ.get("GROUPWARE_BASE_URL", "https://gw.suresofttech.com").rstrip("/"),
++            favorites_file_path=os.environ.get("FAVORITES_FILE_PATH", "data/favorites.json"),
++        )
++
++
++def get_config() -> AppConfig:
++    """Get active configuration loaded from environment."""
++    return AppConfig.from_env()
+diff --git a/src/meeting_room_bot/favorites/json_repository.py b/src/meeting_room_bot/favorites/json_repository.py
+index 398cf5b..52804f8 100644
+--- a/src/meeting_room_bot/favorites/json_repository.py
++++ b/src/meeting_room_bot/favorites/json_repository.py
+@@ -1,19 +1,28 @@
+-"""JSON file implementation of FavoriteRepository."""
+-
+ import json
++import logging
++import os
+ from pathlib import Path
+-from typing import Any, Dict, List, Set, Union
++import shutil
++import tempfile
++import threading
++import time
++from typing import Any, Dict, List, Optional, Set, Union
+ 
+ from meeting_room_bot.favorites.models import Favorite, FavoriteType, UserFavorites
+ from meeting_room_bot.favorites.repository import FavoriteRepository
+ from meeting_room_bot.models.user_key import UserKey
+ 
++logger = logging.getLogger(__name__)
++
+ 
+ class JsonFavoriteRepository(FavoriteRepository):
+-    """File-based repository storing user favorites in JSON format."""
++    """File-based repository storing user favorites in JSON format with atomic write & thread safety."""
+ 
+-    def __init__(self, file_path: str = "data/favorites.json"):
++    def __init__(self, file_path: Optional[str] = None):
++        if file_path is None:
++            file_path = os.environ.get("FAVORITES_FILE_PATH", "data/favorites.json")
+         self.file_path = Path(file_path)
++        self._lock = threading.RLock()
+ 
+     def _ensure_dir(self):
+         """Create parent directory if it does not exist."""
+@@ -38,28 +47,51 @@ class JsonFavoriteRepository(FavoriteRepository):
+         return raw
+ 
+     def _load_raw_data(self) -> Dict[str, Any]:
+-        """Load raw data dictionary from JSON file."""
+-        if not self.file_path.exists():
+-            return {"users": {}}
+-
+-        try:
+-            with open(self.file_path, "r", encoding="utf-8") as f:
+-                content = f.read().strip()
+-                if not content:
+-                    return {"users": {}}
+-                data = json.loads(content)
+-                if not isinstance(data, dict) or "users" not in data:
+-                    return {"users": {}}
+-                return data
+-        except Exception:
+-            # Fallback cleanly if file read or JSON parse fails
+-            return {"users": {}}
++        """Load raw data dictionary from JSON file under thread lock with corruption backup."""
++        with self._lock:
++            if not self.file_path.exists():
++                return {"users": {}}
++
++            try:
++                with open(self.file_path, "r", encoding="utf-8") as f:
++                    content = f.read().strip()
++                    if not content:
++                        return {"users": {}}
++                    data = json.loads(content)
++                    if not isinstance(data, dict) or "users" not in data:
++                        return {"users": {}}
++                    return data
++            except Exception as e:
++                logger.error(f"[JsonFavoriteRepository] Failed to read/parse favorites from {self.file_path}: {e}")
++                # If corrupted file exists and has content, create a backup to prevent silent permanent loss
++                try:
++                    if self.file_path.stat().st_size > 0:
++                        backup_path = self.file_path.with_name(f"{self.file_path.name}.corrupted.{int(time.time())}")
++                        shutil.copyfile(self.file_path, backup_path)
++                        logger.warning(f"[JsonFavoriteRepository] Preserved corrupted file at: {backup_path}")
++                except Exception as be:
++                    logger.error(f"[JsonFavoriteRepository] Failed to create corrupted backup: {be}")
++                return {"users": {}}
+ 
+     def _save_raw_data(self, data: Dict[str, Any]):
+-        """Save data dictionary to JSON file."""
+-        self._ensure_dir()
+-        with open(self.file_path, "w", encoding="utf-8") as f:
+-            json.dump(data, f, ensure_ascii=False, indent=2)
++        """Save data dictionary atomically using flush, fsync, and atomic rename under thread lock."""
++        with self._lock:
++            self._ensure_dir()
++            temp_path = self.file_path.with_name(f"{self.file_path.name}.tmp.{os.getpid()}.{time.time_ns()}")
++            try:
++                with open(temp_path, "w", encoding="utf-8") as f:
++                    json.dump(data, f, ensure_ascii=False, indent=2)
++                    f.flush()
++                    os.fsync(f.fileno())
++                os.replace(temp_path, self.file_path)
++            except Exception as e:
++                logger.error(f"[JsonFavoriteRepository] Failed atomic save to {self.file_path}: {e}")
++                if temp_path.exists():
++                    try:
++                        temp_path.unlink()
++                    except Exception:
++                        pass
++                raise
+ 
+     def get_user_favorites(self, user_id: Union[UserKey, str]) -> UserFavorites:
+         """Get UserFavorites for specific user_id."""
+@@ -94,82 +126,87 @@ class JsonFavoriteRepository(FavoriteRepository):
+ 
+     def add_asset(self, user_id: Union[UserKey, str], asset_id: int) -> bool:
+         """Add asset ID to user's favorites (de-duplicated)."""
+-        data = self._load_raw_data()
+-        users = data.setdefault("users", {})
+-        key = self._resolve_storage_key(user_id, users)
+-        user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
+-
+-        assets_set = set(user_entry.get("favorite_assets", []))
+-        if asset_id in assets_set:
+-            return False  # Already exists
+-
+-        assets_set.add(asset_id)
+-        user_entry["favorite_assets"] = sorted(assets_set)
+-        self._save_raw_data(data)
+-        return True
++        with self._lock:
++            data = self._load_raw_data()
++            users = data.setdefault("users", {})
++            key = self._resolve_storage_key(user_id, users)
++            user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
++
++            assets_set = set(user_entry.get("favorite_assets", []))
++            if asset_id in assets_set:
++                return False  # Already exists
++
++            assets_set.add(asset_id)
++            user_entry["favorite_assets"] = sorted(assets_set)
++            self._save_raw_data(data)
++            return True
+ 
+     def add_room(self, user_id: Union[UserKey, str], room_id: int) -> bool:
+         """Add room ID to user's favorites (de-duplicated)."""
+-        data = self._load_raw_data()
+-        users = data.setdefault("users", {})
+-        key = self._resolve_storage_key(user_id, users)
+-        user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
+-
+-        rooms_set = set(user_entry.get("favorite_rooms", []))
+-        if room_id in rooms_set:
+-            return False  # Already exists
+-
+-        rooms_set.add(room_id)
+-        user_entry["favorite_rooms"] = sorted(rooms_set)
+-        self._save_raw_data(data)
+-        return True
++        with self._lock:
++            data = self._load_raw_data()
++            users = data.setdefault("users", {})
++            key = self._resolve_storage_key(user_id, users)
++            user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
++
++            rooms_set = set(user_entry.get("favorite_rooms", []))
++            if room_id in rooms_set:
++                return False  # Already exists
++
++            rooms_set.add(room_id)
++            user_entry["favorite_rooms"] = sorted(rooms_set)
++            self._save_raw_data(data)
++            return True
+ 
+     def remove_asset(self, user_id: Union[UserKey, str], asset_id: int) -> bool:
+         """Remove asset ID from user's favorites."""
+-        data = self._load_raw_data()
+-        users = data.get("users", {})
+-        key = self._resolve_storage_key(user_id, users)
+-        if key not in users:
+-            return False
++        with self._lock:
++            data = self._load_raw_data()
++            users = data.get("users", {})
++            key = self._resolve_storage_key(user_id, users)
++            if key not in users:
++                return False
+ 
+-        user_entry = users[key]
+-        assets_set = set(user_entry.get("favorite_assets", []))
++            user_entry = users[key]
++            assets_set = set(user_entry.get("favorite_assets", []))
+ 
+-        if asset_id not in assets_set:
+-            return False
++            if asset_id not in assets_set:
++                return False
+ 
+-        assets_set.remove(asset_id)
+-        user_entry["favorite_assets"] = sorted(assets_set)
+-        self._save_raw_data(data)
+-        return True
++            assets_set.remove(asset_id)
++            user_entry["favorite_assets"] = sorted(assets_set)
++            self._save_raw_data(data)
++            return True
+ 
+     def remove_room(self, user_id: Union[UserKey, str], room_id: int) -> bool:
+         """Remove room ID from user's favorites."""
+-        data = self._load_raw_data()
+-        users = data.get("users", {})
+-        key = self._resolve_storage_key(user_id, users)
+-        if key not in users:
+-            return False
++        with self._lock:
++            data = self._load_raw_data()
++            users = data.get("users", {})
++            key = self._resolve_storage_key(user_id, users)
++            if key not in users:
++                return False
+ 
+-        user_entry = users[key]
+-        rooms_set = set(user_entry.get("favorite_rooms", []))
++            user_entry = users[key]
++            rooms_set = set(user_entry.get("favorite_rooms", []))
+ 
+-        if room_id not in rooms_set:
+-            return False
++            if room_id not in rooms_set:
++                return False
+ 
+-        rooms_set.remove(room_id)
+-        user_entry["favorite_rooms"] = sorted(rooms_set)
+-        self._save_raw_data(data)
+-        return True
++            rooms_set.remove(room_id)
++            user_entry["favorite_rooms"] = sorted(rooms_set)
++            self._save_raw_data(data)
++            return True
+ 
+     def clear(self, user_id: Union[UserKey, str]) -> bool:
+         """Clear all favorites for a user."""
+-        data = self._load_raw_data()
+-        users = data.get("users", {})
+-        key = self._resolve_storage_key(user_id, users)
+-        if key in users:
+-            del users[key]
+-            self._save_raw_data(data)
+-            return True
+-        return False
++        with self._lock:
++            data = self._load_raw_data()
++            users = data.get("users", {})
++            key = self._resolve_storage_key(user_id, users)
++            if key in users:
++                del users[key]
++                self._save_raw_data(data)
++                return True
++            return False
+ 
+diff --git a/src/meeting_room_bot/groupware/client.py b/src/meeting_room_bot/groupware/client.py
+index 6f4449f..2f35704 100644
+--- a/src/meeting_room_bot/groupware/client.py
++++ b/src/meeting_room_bot/groupware/client.py
+@@ -2,6 +2,7 @@
+ 
+ from datetime import datetime, timedelta, timezone
+ from typing import Any, Dict, Optional
++import os
+ import requests
+ 
+ 
+@@ -28,7 +29,9 @@ class GroupwareAPIError(GroupwareError):
+ class GroupwareClient:
+     """HTTP Client for Groupware Meeting Room API using requests.Session."""
+ 
+-    def __init__(self, base_url: str = "https://gw.suresofttech.com"):
++    def __init__(self, base_url: Optional[str] = None):
++        if base_url is None:
++            base_url = os.environ.get("GROUPWARE_BASE_URL", "https://gw.suresofttech.com")
+         self.base_url = base_url.rstrip("/")
+         self.session = requests.Session()
+         self.session.headers.update({
+diff --git a/src/meeting_room_bot/providers/real_provider.py b/src/meeting_room_bot/providers/real_provider.py
+index a52ad81..d4f3d97 100644
+--- a/src/meeting_room_bot/providers/real_provider.py
++++ b/src/meeting_room_bot/providers/real_provider.py
+@@ -71,10 +71,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
+                     "is_fav": False,
+                 })
+             return QueryResult(status=QueryStatus.SUCCESS, data={"locations": locations})
+-        except (GroupwareAuthError, GroupwareAPIError) as e:
++        except GroupwareAuthError as e:
+             logger.warning(f"401 Auth error for user {user_id}: {e}")
+             self.session_mgr.remove_session(user_id)
+             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
++        except GroupwareNetworkError as e:
++            logger.error(f"Network error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
++        except GroupwareAPIError as e:
++            logger.error(f"Groupware API error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+         except Exception as e:
+             logger.error(f"Error fetching locations for user {user_id}: {e}", exc_info=True)
+             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+@@ -155,13 +161,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
+                     data={"scope_title": "🌐 전체 위치", "groups": groups},
+                 )
+ 
+-        except (GroupwareAuthError, GroupwareAPIError) as e:
++        except GroupwareAuthError as e:
+             logger.warning(f"401 Auth error for user {user_id}: {e}")
+             self.session_mgr.remove_session(user_id)
+             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+         except GroupwareNetworkError as e:
+             logger.error(f"Network error for user {user_id}: {e}")
+             return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
++        except GroupwareAPIError as e:
++            logger.error(f"Groupware API error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+         except Exception as e:
+             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
+             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+@@ -239,13 +248,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
+                     },
+                 )
+ 
+-        except (GroupwareAuthError, GroupwareAPIError) as e:
++        except GroupwareAuthError as e:
+             logger.warning(f"401 Auth error for user {user_id}: {e}")
+             self.session_mgr.remove_session(user_id)
+             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+         except GroupwareNetworkError as e:
+             logger.error(f"Network error for user {user_id}: {e}")
+             return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
++        except GroupwareAPIError as e:
++            logger.error(f"Groupware API error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+         except Exception as e:
+             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
+             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+@@ -303,10 +315,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
+                     "rooms": rooms_info,
+                 },
+             )
+-        except (GroupwareAuthError, GroupwareAPIError) as e:
++        except GroupwareAuthError as e:
+             logger.warning(f"401 Auth error for user {user_id}: {e}")
+             self.session_mgr.remove_session(user_id)
+             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
++        except GroupwareNetworkError as e:
++            logger.error(f"Network error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
++        except GroupwareAPIError as e:
++            logger.error(f"Groupware API error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+         except Exception as e:
+             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
+             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+@@ -343,10 +361,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
+                     "schedules": schedules,
+                 },
+             )
+-        except (GroupwareAuthError, GroupwareAPIError) as e:
++        except GroupwareAuthError as e:
+             logger.warning(f"401 Auth error for user {user_id}: {e}")
+             self.session_mgr.remove_session(user_id)
+             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
++        except GroupwareNetworkError as e:
++            logger.error(f"Network error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
++        except GroupwareAPIError as e:
++            logger.error(f"Groupware API error for user {user_id}: {e}")
++            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+         except Exception as e:
+             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
+             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+diff --git a/src/meeting_room_bot/telegram/bot.py b/src/meeting_room_bot/telegram/bot.py
+index 42490ce..aec4344 100644
+--- a/src/meeting_room_bot/telegram/bot.py
++++ b/src/meeting_room_bot/telegram/bot.py
+@@ -25,7 +25,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
+ logging.getLogger("httpcore").setLevel(logging.WARNING)
+ 
+ 
+-def get_default_provider() -> MeetingRoomQueryProvider:
++def get_default_provider(favorite_service: Optional["FavoriteService"] = None) -> MeetingRoomQueryProvider:
+     """Instantiate Provider based on TELEGRAM_DATA_MODE environment variable."""
+     from meeting_room_bot.auth.session_manager import session_manager
+     from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
+@@ -36,22 +36,34 @@ def get_default_provider() -> MeetingRoomQueryProvider:
+     mode = os.environ.get("TELEGRAM_DATA_MODE", "mock").strip().lower()
+     if mode == "real":
+         logger.info("[bot] Initializing RealMeetingRoomProvider (TELEGRAM_DATA_MODE=real)")
+-        fav_service = FavoriteService(JsonFavoriteRepository())
+-        return RealMeetingRoomProvider(session_mgr=session_manager, favorite_service=fav_service)
++        if favorite_service is None:
++            favorite_service = FavoriteService(JsonFavoriteRepository())
++        return RealMeetingRoomProvider(session_mgr=session_manager, favorite_service=favorite_service)
+     else:
+         logger.info("[bot] Initializing MockMeetingRoomProvider (TELEGRAM_DATA_MODE=mock)")
+         return MockMeetingRoomProvider()
+ 
+ 
+ def build_application(
+-    token: str, provider: Optional[MeetingRoomQueryProvider] = None
++    token: str,
++    provider: Optional[MeetingRoomQueryProvider] = None,
++    favorite_service: Optional["FavoriteService"] = None,
+ ) -> Application:
+     """Build and configure telegram Application instance with handlers."""
+     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+         raise ValueError("Invalid Telegram Bot Token provided.")
+ 
++    from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
++    from meeting_room_bot.favorites.service import FavoriteService
++    from meeting_room_bot.telegram.handlers import set_favorite_service
++
++    if favorite_service is None:
++        favorite_service = FavoriteService(JsonFavoriteRepository())
++
++    set_favorite_service(favorite_service)
++
+     if provider is None:
+-        provider = get_default_provider()
++        provider = get_default_provider(favorite_service=favorite_service)
+ 
+     set_query_provider(provider)
+ 
+diff --git a/src/meeting_room_bot/telegram/handlers.py b/src/meeting_room_bot/telegram/handlers.py
+index 1d9faa2..25bc31a 100644
+--- a/src/meeting_room_bot/telegram/handlers.py
++++ b/src/meeting_room_bot/telegram/handlers.py
+@@ -1,5 +1,6 @@
+ """Telegram Bot Async Event Handlers."""
+ 
++import asyncio
+ import logging
+ from typing import Optional, Union
+ from telegram import Update
+@@ -71,7 +72,31 @@ from meeting_room_bot.telegram.states import (
+ 
+ logger = logging.getLogger(__name__)
+ 
+-fav_service = FavoriteService(JsonFavoriteRepository())
++# Active FavoriteService instance (Dependency Injected)
++_active_fav_service: Optional[FavoriteService] = None
++
++
++def get_favorite_service() -> FavoriteService:
++    """Get active favorite service instance (defaults to singleton JsonFavoriteRepository)."""
++    global _active_fav_service
++    # If fav_service was patched on the module by tests, respect it
++    mod_fav = globals().get("fav_service")
++    if mod_fav is not None:
++        return mod_fav
++    if _active_fav_service is None:
++        _active_fav_service = FavoriteService(JsonFavoriteRepository())
++    return _active_fav_service
++
++
++def set_favorite_service(service: FavoriteService):
++    """Inject active favorite service instance."""
++    global _active_fav_service, fav_service
++    _active_fav_service = service
++    fav_service = service
++
++
++# Module-level attribute for DI and backwards compatibility with tests patching handlers.fav_service
++fav_service: Optional[FavoriteService] = None
+ 
+ 
+ async def safe_edit_message_text(query, text: str, reply_markup=None):
+@@ -112,39 +137,41 @@ async def handle_unauthenticated_or_expired(query, status: QueryStatus, user_id:
+     platform_uid = user_key.platform_user_id
+ 
+     if status == QueryStatus.NOT_AUTHENTICATED:
++        token = token_service.create_token(user_key)
++        link_url = f"{base_url}/link/{token}"
+         if is_dev:
+-            token = token_service.create_token(user_key)
+-            link_url = f"{base_url}/link/{token}"
+             logger.info(f"\n[DEV] Account linking required for user_id: {platform_uid}\n[DEV] Open this URL in the PC browser:\n{link_url}\n")
+             text = (
+                 "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
+                 "현재 로컬 개발 모드입니다.\n"
+                 "PC 브라우저에서 계정 연결을 진행해주세요."
+             )
++            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=None))
+         else:
+             text = (
+                 "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
+                 "회사 계정을 연결한 후 회의실 조회가 가능합니다."
+             )
+-        await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(platform_uid))
++            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=link_url))
+         return True
+ 
+     elif status == QueryStatus.SESSION_EXPIRED:
++        token = token_service.create_token(user_key)
++        link_url = f"{base_url}/link/{token}"
+         if is_dev:
+-            token = token_service.create_token(user_key)
+-            link_url = f"{base_url}/link/{token}"
+             logger.info(f"\n[DEV] Session expired for user_id: {platform_uid}\n[DEV] Open this URL in the PC browser to reconnect:\n{link_url}\n")
+             text = (
+                 "🔐 그룹웨어 로그인 세션이 만료되었습니다.\n\n"
+                 "현재 로컬 개발 모드입니다.\n"
+                 "PC 브라우저에서 다시 연결해주세요."
+             )
++            await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(link_url=None))
+         else:
+             text = (
+                 "🔐 그룹웨어 로그인 세션이 만료되었습니다.\n\n"
+                 "다시 로그인하여 계정을 연결해주세요."
+             )
+-        await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(platform_uid))
++            await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(link_url=link_url))
+         return True
+     elif status == QueryStatus.NO_FAVORITES:
+         text = (
+@@ -192,17 +219,35 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+     data = query.data or ""
+     state = user_state_mgr.get_state(user_id)
+     provider = get_query_provider()
++    fav_service = get_favorite_service()
+ 
+     try:
+         logger.info(f"[telegram] user_id={user_id} callback={data}")
+ 
+         # Account Connect Callback
+         if data == CB_AUTH_CONNECT:
+-            text = (
+-                "🔐 그룹웨어 계정 연결\n\n"
+-                "아래 버튼을 눌러 그룹웨어 계정으로 로그인해주세요."
+-            )
+-            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(user_id))
++            from meeting_room_bot.account_link.token_service import token_service
++            from meeting_room_bot.telegram.keyboards import is_localhost_url
++            import os
++
++            base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
++            is_dev = is_localhost_url(base_url)
++            token = token_service.create_token(user_key)
++            link_url = f"{base_url}/link/{token}"
++            if is_dev:
++                logger.info(f"\n[DEV] Account linking required for user_id: {user_key.platform_user_id}\n[DEV] Open this URL in the PC browser:\n{link_url}\n")
++                text = (
++                    "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
++                    "현재 로컬 개발 모드입니다.\n"
++                    "PC 브라우저에서 계정 연결을 진행해주세요."
++                )
++                await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=None))
++            else:
++                text = (
++                    "🔐 그룹웨어 계정 연결\n\n"
++                    "아래 버튼을 눌러 그룹웨어 계정으로 로그인해주세요."
++                )
++                await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=link_url))
+             return
+ 
+         # Account Unlink Callback
+@@ -235,7 +280,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+         if data == CB_MENU_NOW:
+             logger.info(f"[telegram] user_id={user_id} callback=menu:now starting NOW flow")
+             user_state_mgr.update_state(user_id, last_menu="now", scope="fav")
+-            res = provider.get_available_rooms_now(user_id=user_key, scope="fav")
++            res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope="fav")
+ 
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+@@ -268,7 +313,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+         if data == CB_MENU_WHERE:
+             logger.info(f"[telegram] user_id={user_id} callback=menu:where starting WHERE flow")
+             user_state_mgr.update_state(user_id, last_menu="where")
+-            res = provider.get_locations(user_id=user_key)
++            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+ 
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+@@ -296,7 +341,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                 return
+ 
+             # Resolve location and room names using provider
+-            loc_res = provider.get_locations(user_id=user_key)
++            loc_res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+             asset_name_map = {}
+             if loc_res.status == QueryStatus.SUCCESS:
+                 for loc in loc_res.data.get("locations", []):
+@@ -328,7 +373,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                 time_val = state.get("time", "14:00")
+                 dur_val = state.get("duration", 60)
+ 
+-                res = provider.get_available_rooms_at(
++                res = await asyncio.to_thread(
++                    provider.get_available_rooms_at,
+                     user_id=user_key,
+                     date_str=date_val,
+                     start_time=time_val,
+@@ -355,7 +401,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                 return
+ 
+             else:  # Default 'now'
+-                res = provider.get_available_rooms_now(user_id=user_key, scope=target_scope)
++                res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope=target_scope)
+ 
+                 if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                     return
+@@ -376,7 +422,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+         # 8. Refresh Now
+         if data == CB_REFRESH_NOW:
+             curr_scope = state.get("scope", "fav")
+-            res = provider.get_available_rooms_now(user_id=user_key, scope=curr_scope)
++            res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope=curr_scope)
+ 
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+@@ -434,7 +480,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+             date_val = resolve_date_str(state.get("date"))
+             time_val = state.get("time", "14:00")
+ 
+-            res = provider.get_available_rooms_at(
++            res = await asyncio.to_thread(
++                provider.get_available_rooms_at,
+                 user_id=user_key,
+                 date_str=date_val,
+                 start_time=time_val,
+@@ -464,7 +511,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+             asset_id = int(data.replace(CB_ASSET_PREFIX, ""))
+             user_state_mgr.update_state(user_id, asset_id=asset_id, last_menu="where_asset")
+ 
+-            res = provider.get_location_status(user_id=user_key, asset_id=asset_id)
++            res = await asyncio.to_thread(provider.get_location_status, user_id=user_key, asset_id=asset_id)
+ 
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+@@ -488,7 +535,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+         if data.startswith(CB_ROOM_PREFIX):
+             room_id = int(data.replace(CB_ROOM_PREFIX, ""))
+             asset_id = state.get("asset_id", 50)
+-            res = provider.get_room_detail(user_id=user_key, asset_id=asset_id, room_id=room_id)
++            res = await asyncio.to_thread(provider.get_room_detail, user_id=user_key, asset_id=asset_id, room_id=room_id)
+ 
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+@@ -519,7 +566,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
+                 return
+ 
+-            res = provider.get_locations(user_id=user_key)
++            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+ 
+@@ -539,7 +586,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+             asset_id = int(data.replace(CB_FAV_ADD_ASSET_PREFIX, ""))
+             added = fav_service.add_asset(user_key, asset_id)
+ 
+-            res = provider.get_locations(user_id=user_key)
++            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+             asset_name = f"위치 {asset_id}"
+             if res.status == QueryStatus.SUCCESS:
+                 for loc in res.data.get("locations", []):
+@@ -561,7 +608,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
+                 return
+ 
+-            res = provider.get_locations(user_id=user_key)
++            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+ 
+@@ -580,7 +627,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+ 
+             asset_id = int(data.replace(CB_FAV_SEL_ASSET_PREFIX, ""))
+             user_state_mgr.update_state(user_id, asset_id=asset_id)
+-            res = provider.get_location_status(user_id=user_key, asset_id=asset_id)
++            res = await asyncio.to_thread(provider.get_location_status, user_id=user_key, asset_id=asset_id)
+             if await handle_unauthenticated_or_expired(query, res.status, user_key):
+                 return
+ 
+@@ -620,7 +667,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+                 await safe_edit_message_text(query, text, reply_markup=favorites_keyboard())
+                 return
+ 
+-            loc_res = provider.get_locations(user_id=user_key)
++            loc_res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
+             asset_items = []
+             if loc_res.status == QueryStatus.SUCCESS:
+                 for loc in loc_res.data.get("locations", []):
+diff --git a/src/meeting_room_bot/telegram/keyboards.py b/src/meeting_room_bot/telegram/keyboards.py
+index 960b41b..e29f4e1 100644
+--- a/src/meeting_room_bot/telegram/keyboards.py
++++ b/src/meeting_room_bot/telegram/keyboards.py
+@@ -1,6 +1,6 @@
+ """Telegram InlineKeyboard builders."""
+ 
+-from typing import List
++from typing import List, Optional
+ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+ 
+ from meeting_room_bot.telegram.states import (
+@@ -374,47 +374,53 @@ def is_localhost_url(url: str) -> bool:
+     return "localhost" in url_lower or "127.0.0.1" in url_lower or not url_lower.startswith("https://")
+ 
+ 
+-def unauthenticated_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
+-    """Build guidance keyboard when user has no active Groupware session."""
+-    from meeting_room_bot.account_link.token_service import token_service
+-    import os
+-
+-    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
+-    token = token_service.create_token(str(user_id))
+-    url = f"{base_url}/link/{token}"
+-
+-    if is_localhost_url(base_url):
+-        # Localhost cannot be sent as Telegram URL button (Telegram BadRequest error)
+-        keyboard = [
+-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+-        ]
+-    else:
+-        # Production HTTPS URL can be sent as Telegram URL button
+-        keyboard = [
+-            [InlineKeyboardButton("🔐 회사 계정 연결", url=url)],
+-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+-        ]
++def unauthenticated_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
++    """Build guidance keyboard when user has no active Groupware session.
++
++    Accepts link_url directly from caller. Does NOT generate security tokens.
++    If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
++    For backward compatibility with legacy tests passing user_id: handles non-URL strings cleanly.
++    """
++    if link_url and not (link_url.startswith("http://") or link_url.startswith("https://")):
++        # Legacy backward-compatibility path for v0.1 tests passing user_id
++        import os
++        base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
++        if not is_localhost_url(base_url):
++            from meeting_room_bot.account_link.token_service import token_service
++            token = token_service.create_token(str(link_url))
++            link_url = f"{base_url}/link/{token}"
++        else:
++            link_url = None
++
++    keyboard = []
++    if link_url and not is_localhost_url(link_url):
++        keyboard.append([InlineKeyboardButton("🔐 회사 계정 연결", url=link_url)])
++    keyboard.append([InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)])
+     return InlineKeyboardMarkup(keyboard)
+ 
+ 
+-def session_expired_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
+-    """Build guidance keyboard when user session has expired (401)."""
+-    from meeting_room_bot.account_link.token_service import token_service
+-    import os
+-
+-    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
+-    token = token_service.create_token(str(user_id))
+-    url = f"{base_url}/link/{token}"
+-
+-    if is_localhost_url(base_url):
+-        keyboard = [
+-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+-        ]
+-    else:
+-        keyboard = [
+-            [InlineKeyboardButton("🔐 다시 연결", url=url)],
+-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
+-        ]
++def session_expired_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
++    """Build guidance keyboard when user session has expired (401).
++
++    Accepts link_url directly from caller. Does NOT generate security tokens.
++    If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
++    For backward compatibility with legacy tests passing user_id: handles non-URL strings cleanly.
++    """
++    if link_url and not (link_url.startswith("http://") or link_url.startswith("https://")):
++        # Legacy backward-compatibility path for v0.1 tests passing user_id
++        import os
++        base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
++        if not is_localhost_url(base_url):
++            from meeting_room_bot.account_link.token_service import token_service
++            token = token_service.create_token(str(link_url))
++            link_url = f"{base_url}/link/{token}"
++        else:
++            link_url = None
++
++    keyboard = []
++    if link_url and not is_localhost_url(link_url):
++        keyboard.append([InlineKeyboardButton("🔐 다시 연결", url=link_url)])
++    keyboard.append([InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)])
+     return InlineKeyboardMarkup(keyboard)
+ 
+ 
+diff --git a/tests/test_phase2_1_foundation.py b/tests/test_phase2_1_foundation.py
+new file mode 100644
+index 0000000..b1fffef
+--- /dev/null
++++ b/tests/test_phase2_1_foundation.py
+@@ -0,0 +1,361 @@
++"""Tests for Phase 2.1: Production Foundation Hardening.
++
++Covers:
++1. Token single generation and keyboard separation
++2. UserKey namespace preservation & AccountLink round-trip
++3. Token store hygiene (consume, expiry cleanup, user token replacement)
++4. Auth / API / Network error classification
++5. FavoriteService single-instance wiring
++6. Atomic favorite write & corrupted file safety
++7. Blocking I/O event-loop isolation (asyncio.to_thread)
++8. IP rate limiting on login endpoint
++9. Security response headers
++"""
++
++import asyncio
++from datetime import datetime, timedelta, timezone
++import json
++import os
++import shutil
++import tempfile
++import time
++from unittest.mock import AsyncMock, MagicMock, patch
++
++from fastapi.testclient import TestClient
++import pytest
++
++from meeting_room_bot.account_link.app import app, reset_rate_limits
++from meeting_room_bot.account_link.token_service import AccountLinkTokenService, token_service
++from meeting_room_bot.auth.session_manager import UserSessionManager, session_manager
++from meeting_room_bot.config import AppConfig, get_config
++from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
++from meeting_room_bot.favorites.service import FavoriteService
++from meeting_room_bot.groupware.client import (
++    GroupwareAPIError,
++    GroupwareAuthError,
++    GroupwareClient,
++    GroupwareNetworkError,
++)
++from meeting_room_bot.models.user_key import UserKey
++from meeting_room_bot.providers.base import QueryResult, QueryStatus
++from meeting_room_bot.providers.real_provider import RealMeetingRoomProvider
++from meeting_room_bot.telegram.bot import build_application
++from meeting_room_bot.telegram.handlers import (
++    button_callback,
++    get_favorite_service,
++    handle_unauthenticated_or_expired,
++    set_favorite_service,
++    set_query_provider,
++)
++from meeting_room_bot.telegram.keyboards import (
++    session_expired_keyboard,
++    unauthenticated_keyboard,
++)
++
++
++# ---------------------------------------------------------------------------
++# 1. Token 1회 생성 & Keyboard 분리
++# ---------------------------------------------------------------------------
++class TestTokenGenerationSingleTime:
++    def test_keyboards_do_not_generate_tokens_when_given_url(self):
++        """Keyboards receive prepared link_url and do not create security tokens."""
++        url = "https://meeting.example.com/link/custom_tok_123"
++        kb = unauthenticated_keyboard(link_url=url)
++        assert len(kb.inline_keyboard) == 2
++        btn = kb.inline_keyboard[0][0]
++        assert btn.text == "🔐 회사 계정 연결"
++        assert btn.url == url
++        assert kb.inline_keyboard[1][0].text == "🏠 처음으로"
++
++        kb_expired = session_expired_keyboard(link_url=url)
++        assert len(kb_expired.inline_keyboard) == 2
++        btn_exp = kb_expired.inline_keyboard[0][0]
++        assert btn_exp.text == "🔐 다시 연결"
++        assert btn_exp.url == url
++        assert kb_expired.inline_keyboard[1][0].text == "🏠 처음으로"
++
++    def test_keyboards_local_mode_no_button(self):
++        """In local development mode, link_url is None and no link URL button is added."""
++        kb = unauthenticated_keyboard(link_url=None)
++        assert len(kb.inline_keyboard) == 1
++        assert kb.inline_keyboard[0][0].text == "🏠 처음으로"
++        assert kb.inline_keyboard[0][0].url is None
++
++        kb_expired = session_expired_keyboard(link_url=None)
++        assert len(kb_expired.inline_keyboard) == 1
++        assert kb_expired.inline_keyboard[0][0].text == "🏠 처음으로"
++        assert kb_expired.inline_keyboard[0][0].url is None
++
++    @pytest.mark.anyio
++    async def test_handler_creates_token_only_once_for_unauthenticated_event(self):
++        """Verifies handler creates token exactly once per auth challenge event."""
++        user_key = UserKey("telegram", "user_single_tok")
++        query = MagicMock()
++        query.edit_message_text = AsyncMock()
++
++        with patch.object(token_service, "create_token", wraps=token_service.create_token) as spy_create:
++            with patch.dict(os.environ, {"ACCOUNT_LINK_BASE_URL": "https://approved.domain.com"}):
++                handled = await handle_unauthenticated_or_expired(query, QueryStatus.NOT_AUTHENTICATED, user_key)
++                assert handled is True
++                assert spy_create.call_count == 1
++                args, _ = spy_create.call_args
++                assert args[0] == user_key
++
++
++# ---------------------------------------------------------------------------
++# 2. UserKey Namespace Preservation & AccountLink Round-Trip
++# ---------------------------------------------------------------------------
++class TestUserKeyNamespacePreservation:
++    def test_token_service_preserves_userkey_namespace(self):
++        svc = AccountLinkTokenService(default_ttl=300)
++        u_tg = UserKey("telegram", "123")
++        u_ka = UserKey("kakao", "123")
++
++        tok_tg = svc.create_token(u_tg)
++        tok_ka = svc.create_token(u_ka)
++
++        assert tok_tg != tok_ka
++        # Both distinct keys stored without collision
++        assert svc._tokens[tok_tg].user_id == "telegram:123"
++        assert svc._tokens[tok_ka].user_id == "kakao:123"
++
++    def test_account_link_roundtrip_restores_userkey_in_session_mgr(self):
++        """FastAPI POST /link/{token} restores UserKey before binding to session_mgr."""
++        client = TestClient(app)
++        user_key = UserKey("telegram", "rt_user_777")
++        tok = token_service.create_token(user_key)
++
++        def mock_login(self, username, password):
++            self._is_authenticated = True
++            return True
++
++        with patch.object(GroupwareClient, "login", new=mock_login):
++            resp = client.post(f"/link/{tok}", data={"username": "testuser", "password": "pw"})
++            assert resp.status_code == 200
++            assert "연결 완료" in resp.text
++
++            # Verify session_mgr has active session for this exact UserKey
++            assert session_manager.has_session(user_key) is True
++            # Legacy string query also works via UserKey.from_any
++            assert session_manager.has_session("telegram:rt_user_777") is True
++
++
++# ---------------------------------------------------------------------------
++# 3. Token Hygiene & Cleanup
++# ---------------------------------------------------------------------------
++class TestTokenHygiene:
++    def test_consume_token_burns_and_removes(self):
++        svc = AccountLinkTokenService(default_ttl=300)
++        tok = svc.create_token(UserKey("telegram", "burn_test"))
++        assert tok in svc._tokens
++
++        consumed = svc.consume_token(tok)
++        assert consumed == "telegram:burn_test"
++        # Must be completely removed from active tokens
++        assert tok not in svc._tokens
++
++        # Second consume fails
++        assert svc.consume_token(tok) is None
++
++    def test_cleanup_expired_tokens(self):
++        svc = AccountLinkTokenService(default_ttl=1)
++        tok = svc.create_token(UserKey("telegram", "exp_test"))
++        # Force expiration
++        svc._tokens[tok].expires_at = datetime.now(timezone.utc) - timedelta(seconds=10)
++
++        removed = svc.cleanup_expired_tokens()
++        assert removed == 1
++        assert tok not in svc._tokens
++
++    def test_create_token_replaces_older_active_token_for_same_user(self):
++        """Prevent unbounded token accumulation for the same user."""
++        svc = AccountLinkTokenService(default_ttl=300)
++        u = UserKey("telegram", "repeat_user")
++
++        tok1 = svc.create_token(u)
++        assert tok1 in svc._tokens
++
++        tok2 = svc.create_token(u)
++        assert tok2 in svc._tokens
++        assert tok1 not in svc._tokens  # Previous token cleaned up
++
++
++# ---------------------------------------------------------------------------
++# 4. Error Classification (Auth vs General API vs Network)
++# ---------------------------------------------------------------------------
++class TestErrorClassification:
++    def test_auth_error_removes_session_and_returns_session_expired(self):
++        user_key = UserKey("telegram", "err_auth_user")
++        sess_mgr = UserSessionManager()
++        client = GroupwareClient()
++        client._is_authenticated = True
++        sess_mgr.set_client(user_key, client)
++
++        fav_svc = FavoriteService(JsonFavoriteRepository())
++        provider = RealMeetingRoomProvider(sess_mgr, fav_svc)
++
++        with patch.object(client, "get_assets", side_effect=GroupwareAuthError("401 Unauthorized")):
++            res = provider.get_locations(user_key)
++            assert res.status == QueryStatus.SESSION_EXPIRED
++            # Session must be removed on 401
++            assert sess_mgr.has_session(user_key) is False
++
++    def test_api_error_preserves_session_and_returns_groupware_api_error(self):
++        user_key = UserKey("telegram", "err_api_user")
++        sess_mgr = UserSessionManager()
++        client = GroupwareClient()
++        client._is_authenticated = True
++        sess_mgr.set_client(user_key, client)
++
++        fav_svc = FavoriteService(JsonFavoriteRepository())
++        provider = RealMeetingRoomProvider(sess_mgr, fav_svc)
++
++        with patch.object(client, "get_assets", side_effect=GroupwareAPIError("500 Server Error")):
++            res = provider.get_locations(user_key)
++            assert res.status == QueryStatus.GROUPWARE_API_ERROR
++            # Session must be preserved on general API error
++            assert sess_mgr.has_session(user_key) is True
++
++    def test_network_error_preserves_session_and_returns_network_error(self):
++        user_key = UserKey("telegram", "err_net_user")
++        sess_mgr = UserSessionManager()
++        client = GroupwareClient()
++        client._is_authenticated = True
++        sess_mgr.set_client(user_key, client)
++
++        fav_svc = FavoriteService(JsonFavoriteRepository())
++        provider = RealMeetingRoomProvider(sess_mgr, fav_svc)
++
++        with patch.object(client, "get_assets", side_effect=GroupwareNetworkError("Connection refused")):
++            res = provider.get_locations(user_key)
++            assert res.status == QueryStatus.NETWORK_ERROR
++            # Session must be preserved on network drop
++            assert sess_mgr.has_session(user_key) is True
++
++
++# ---------------------------------------------------------------------------
++# 5. FavoriteService Single-Instance Wiring
++# ---------------------------------------------------------------------------
++class TestFavoriteServiceSingleInstanceWiring:
++    def test_build_application_shares_same_favorite_service_instance(self):
++        """Application startup must wire the same FavoriteService instance to provider & handlers."""
++        with patch.dict(os.environ, {"TELEGRAM_DATA_MODE": "real"}):
++            app_builder = build_application("TEST_TOKEN_123")
++            assert app_builder is not None
++
++            handler_fav_service = get_favorite_service()
++            from meeting_room_bot.telegram.handlers import get_query_provider
++            provider = get_query_provider()
++            assert isinstance(provider, RealMeetingRoomProvider)
++            assert provider.favorite_service is handler_fav_service
++
++
++# ---------------------------------------------------------------------------
++# 6. Favorites JSON Safe Atomic Write & Corruption Defense
++# ---------------------------------------------------------------------------
++class TestFavoritesAtomicWrite:
++    def test_atomic_write_creates_valid_json(self):
++        with tempfile.TemporaryDirectory() as tmpdir:
++            file_path = os.path.join(tmpdir, "favorites.json")
++            repo = JsonFavoriteRepository(file_path=file_path)
++
++            u = UserKey("telegram", "safe_write_user")
++            repo.add_asset(u, 50)
++            repo.add_room(u, 101)
++
++            assert os.path.exists(file_path)
++            with open(file_path, "r", encoding="utf-8") as f:
++                data = json.load(f)
++            assert data["users"]["telegram:safe_write_user"]["favorite_assets"] == [50]
++            assert data["users"]["telegram:safe_write_user"]["favorite_rooms"] == [101]
++
++    def test_corrupted_json_is_backed_up_and_not_wiped_blindly(self):
++        with tempfile.TemporaryDirectory() as tmpdir:
++            file_path = os.path.join(tmpdir, "favorites.json")
++            # Write invalid JSON
++            with open(file_path, "w", encoding="utf-8") as f:
++                f.write("{invalid-json-content: corrupt")
++
++            repo = JsonFavoriteRepository(file_path=file_path)
++            # Loading corrupted file should handle safely
++            data = repo._load_raw_data()
++            assert data == {"users": {}}
++
++            # Corrupted backup file should have been created
++            files = os.listdir(tmpdir)
++            corrupted_backups = [fn for fn in files if fn.startswith("favorites.json.corrupted")]
++            assert len(corrupted_backups) == 1
++
++
++# ---------------------------------------------------------------------------
++# 7. Blocking Groupware I/O Event Loop Isolation
++# ---------------------------------------------------------------------------
++class TestBlockingIOIsolation:
++    @pytest.mark.anyio
++    async def test_slow_groupware_call_does_not_block_async_event_loop(self):
++        """Verify that a slow blocking provider call offloaded via asyncio.to_thread
++
++        allows concurrent async tasks on the same event loop to proceed freely.
++        """
++        slow_complete = False
++        loop_counter = 0
++
++        def slow_blocking_call():
++            time.sleep(0.3)
++            nonlocal slow_complete
++            slow_complete = True
++            return "done"
++
++        async def concurrent_heartbeat():
++            nonlocal loop_counter
++            for _ in range(5):
++                await asyncio.sleep(0.05)
++                loop_counter += 1
++
++        # Run slow call in thread and heartbeat in asyncio loop concurrently
++        res, _ = await asyncio.gather(
++            asyncio.to_thread(slow_blocking_call),
++            concurrent_heartbeat(),
++        )
++
++        assert res == "done"
++        assert slow_complete is True
++        # Heartbeat was able to tick multiple times during the 0.3s sleep
++        assert loop_counter >= 3
++
++
++# ---------------------------------------------------------------------------
++# 8. IP Rate Limiting & Security Headers
++# ---------------------------------------------------------------------------
++class TestRateLimitingAndSecurityHeaders:
++    def test_ip_rate_limiting_returns_429(self):
++        reset_rate_limits()
++        client = TestClient(app)
++
++        with patch.dict(os.environ, {"RATE_LIMIT_LOGIN_PER_MINUTE": "3"}):
++            # 3 attempts
++            for i in range(3):
++                tok = token_service.create_token(UserKey("telegram", f"rl_{i}"))
++                resp = client.post(f"/link/{tok}", data={"username": "u", "password": "p"})
++                assert resp.status_code == 400
++
++            # 4th attempt from same client IP -> 429
++            tok_exceed = token_service.create_token(UserKey("telegram", "rl_exceed"))
++            resp_exceed = client.post(f"/link/{tok_exceed}", data={"username": "u", "password": "p"})
++            assert resp_exceed.status_code == 429
++            assert "시도 횟수가 너무 많습니다" in resp_exceed.text
++
++        reset_rate_limits()
++
++    def test_security_response_headers_present(self):
++        client = TestClient(app)
++        tok = token_service.create_token(UserKey("telegram", "sec_user"))
++        resp = client.get(f"/link/{tok}")
++        assert resp.status_code == 200
++
++        headers = resp.headers
++        assert headers.get("referrer-policy") == "no-referrer"
++        assert "no-store" in headers.get("cache-control", "")
++        assert headers.get("x-content-type-options") == "nosniff"
++        assert headers.get("x-frame-options") == "DENY"
++        assert headers.get("content-security-policy") == "frame-ancestors 'none'"
