@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 1 Complete."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Production Foundation."""
 
 import os
 from pathlib import Path
@@ -10,18 +10,38 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_planning"
+HISTORY_SUBDIR = "v0.2_phase2_1_foundation"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_planning_review.zip"
-BASE_TAG = "v0.1-local-mvp"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_foundation_review.zip"
+RELEASE_BASE_TAG = "v0.1-local-mvp"
+TASK_BASE_COMMIT = "79ecbe9506285866480a906c804aca49e2d79d66"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_planning/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_foundation/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
 
-    # Changed Source Files (v0.2 Core & Date Fix)
+    # Phase 2.1 Changed Core & Config Files
+    ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
+    ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
+    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
+    ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
+    ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
+    ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
+    ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
+    ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
+    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
+    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
+    ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
+    ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
+    ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
+    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+
+    # Phase 2.1 Hardening Test Suite
+    ("tests/test_phase2_1_foundation.py", "tests/test_phase2_1_foundation.py"),
+
+    # Phase 1 & Pre-Phase 2 Source Files (Foundation)
     ("src/meeting_room_bot/utils/date_utils.py", "src/meeting_room_bot/utils/date_utils.py"),
     ("src/meeting_room_bot/utils/__init__.py", "src/meeting_room_bot/utils/__init__.py"),
     ("src/meeting_room_bot/models/user_key.py", "src/meeting_room_bot/models/user_key.py"),
@@ -29,50 +49,42 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/providers/mock_data.py", "src/meeting_room_bot/providers/mock_data.py"),
     ("src/meeting_room_bot/providers/mock_provider.py", "src/meeting_room_bot/providers/mock_provider.py"),
     ("src/meeting_room_bot/providers/base.py", "src/meeting_room_bot/providers/base.py"),
-    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
     ("src/meeting_room_bot/auth/session_manager.py", "src/meeting_room_bot/auth/session_manager.py"),
     ("src/meeting_room_bot/favorites/repository.py", "src/meeting_room_bot/favorites/repository.py"),
-    ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
     ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
-    ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
-    ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
-    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
     ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
-    # Changed / Added Test Files
+    # Additional Test Files
     ("tests/test_dynamic_date_handling.py", "tests/test_dynamic_date_handling.py"),
     ("tests/test_favorites.py", "tests/test_favorites.py"),
     ("tests/test_platform_abstraction.py", "tests/test_platform_abstraction.py"),
+    ("tests/test_real_favorites.py", "tests/test_real_favorites.py"),
+    ("tests/test_real_mode_auth_flow.py", "tests/test_real_mode_auth_flow.py"),
 
-    # Changed / Added Docs
+    # Earlier Docs
     ("docs/V0_2_ARCHITECTURE_PLAN.md", "docs/V0_2_ARCHITECTURE_PLAN.md"),
     ("docs/V0_2_PHASE1_REPORT.md", "docs/V0_2_PHASE1_REPORT.md"),
-    ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
 
-    # 1-Hop Direct Context & Consumer Files
-    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
+    # 1-Hop Direct Context & Models
     ("src/meeting_room_bot/models/asset.py", "src/meeting_room_bot/models/asset.py"),
     ("src/meeting_room_bot/models/room.py", "src/meeting_room_bot/models/room.py"),
     ("src/meeting_room_bot/models/reservation.py", "src/meeting_room_bot/models/reservation.py"),
     ("src/meeting_room_bot/favorites/models.py", "src/meeting_room_bot/favorites/models.py"),
-    ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
 
-    # Directly Related Regression Tests & Account Link Tests
+    # Regression Tests
     ("tests/test_auth_session.py", "tests/test_auth_session.py"),
     ("tests/test_providers.py", "tests/test_providers.py"),
     ("tests/test_multi_user_isolation.py", "tests/test_multi_user_isolation.py"),
     ("tests/test_account_link.py", "tests/test_account_link.py"),
     ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
 
-    # Runtime Closure (Required for Independent Test Execution)
+    # Runtime Closure
     ("src/meeting_room_bot/services/availability_service.py", "src/meeting_room_bot/services/availability_service.py"),
     ("src/meeting_room_bot/services/room_status_service.py", "src/meeting_room_bot/services/room_status_service.py"),
     ("src/meeting_room_bot/auth/models.py", "src/meeting_room_bot/auth/models.py"),
-    ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
     ("src/meeting_room_bot/telegram/states.py", "src/meeting_room_bot/telegram/states.py"),
-    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
     ("src/meeting_room_bot/__init__.py", "src/meeting_room_bot/__init__.py"),
     ("src/meeting_room_bot/auth/__init__.py", "src/meeting_room_bot/auth/__init__.py"),
     ("src/meeting_room_bot/favorites/__init__.py", "src/meeting_room_bot/favorites/__init__.py"),
@@ -81,9 +93,6 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/services/__init__.py", "src/meeting_room_bot/services/__init__.py"),
     ("src/meeting_room_bot/telegram/__init__.py", "src/meeting_room_bot/telegram/__init__.py"),
     ("src/meeting_room_bot/account_link/__init__.py", "src/meeting_room_bot/account_link/__init__.py"),
-    ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
-    ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
-    ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
     ("pytest.ini", "pytest.ini"),
     ("requirements.txt", "requirements.txt"),
 ]
@@ -128,10 +137,10 @@ def scan_file_safety(rel_path: str, abs_path: Path):
 
 
 def verify_changed_files_consistency():
-    """Verify that every file changed since BASE_TAG is either in BUNDLE_FILES or EXCLUDED_CHANGED_FILES."""
+    """Verify that every file changed since TASK_BASE_COMMIT is in BUNDLE_FILES."""
     try:
         diff_out = subprocess.check_output(
-            ["git", "diff", "--name-only", BASE_TAG],
+            ["git", "diff", "--name-only", TASK_BASE_COMMIT],
             cwd=WORKSPACE_ROOT,
             text=True,
             encoding="utf-8",
@@ -156,7 +165,7 @@ def verify_changed_files_consistency():
             f"Changed files consistency check failed! The following changed files are missing from BUNDLE_FILES:\n"
             + "\n".join(f"  - {f}" for f in unaccounted)
         )
-    print(f"[OK] Changed Files consistency check passed ({len(changed_files)} changed files verified against BASE).")
+    print(f"[OK] Changed Files consistency check passed ({len(changed_files)} changed files verified against TASK_BASE_COMMIT).")
 
 
 def run_standalone_bundle_self_test(zip_path: Path):
@@ -167,6 +176,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_phase2_1_foundation.py",
             "tests/test_dynamic_date_handling.py",
             "tests/test_platform_abstraction.py",
             "tests/test_auth_session.py",
@@ -175,6 +185,8 @@ def run_standalone_bundle_self_test(zip_path: Path):
             "tests/test_multi_user_isolation.py",
             "tests/test_account_link.py",
             "tests/test_account_link_localhost.py",
+            "tests/test_real_favorites.py",
+            "tests/test_real_mode_auth_flow.py",
         ]
         cmd = [sys.executable, "-m", "pytest"] + test_files + ["-v"]
         res = subprocess.run(cmd, cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8")
@@ -195,17 +207,27 @@ def main():
     zip_path = OUTPUT_DIR / ZIP_FILENAME
 
     print(f"=== Creating Review Bundle: {ZIP_FILENAME} ===")
-    print(f"Base Tag / Commit: {BASE_TAG}")
+    print(f"Release Base Tag: {RELEASE_BASE_TAG}")
+    print(f"Task Base Commit: {TASK_BASE_COMMIT}")
     print(f"History Output Directory: {OUTPUT_DIR}")
 
-    # 1. Update UTF-8 patch in history dir
+    # 1. Update UTF-8 patch for Task Base Commit..HEAD in history dir
     patch_path = OUTPUT_DIR / "REVIEW_GIT_DIFF.patch"
     diff_bytes = subprocess.check_output(
-        ["git", "diff", BASE_TAG, "--", ".", ":(exclude)review_bundles"],
+        ["git", "diff", TASK_BASE_COMMIT, "--", ".", ":(exclude)review_bundles"],
         cwd=WORKSPACE_ROOT,
     )
     patch_path.write_bytes(diff_bytes)
-    print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, UTF-8)")
+    print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, Task Base Commit -> HEAD, UTF-8)")
+
+    # Also update cumulative diff from Release Base Tag if helpful
+    cumulative_patch_path = OUTPUT_DIR / "CUMULATIVE_GIT_DIFF.patch"
+    cum_diff_bytes = subprocess.check_output(
+        ["git", "diff", RELEASE_BASE_TAG, "--", ".", ":(exclude)review_bundles"],
+        cwd=WORKSPACE_ROOT,
+    )
+    cumulative_patch_path.write_bytes(cum_diff_bytes)
+    print(f"[OK] Updated CUMULATIVE_GIT_DIFF.patch ({len(cum_diff_bytes):,} bytes, Release Base Tag -> HEAD, UTF-8)")
 
     # 2. Check changed files consistency
     verify_changed_files_consistency()

@@ -71,10 +71,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                     "is_fav": False,
                 })
             return QueryResult(status=QueryStatus.SUCCESS, data={"locations": locations})
-        except (GroupwareAuthError, GroupwareAPIError) as e:
+        except GroupwareAuthError as e:
             logger.warning(f"401 Auth error for user {user_id}: {e}")
             self.session_mgr.remove_session(user_id)
             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+        except GroupwareNetworkError as e:
+            logger.error(f"Network error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Error fetching locations for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
@@ -155,13 +161,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                     data={"scope_title": "🌐 전체 위치", "groups": groups},
                 )
 
-        except (GroupwareAuthError, GroupwareAPIError) as e:
+        except GroupwareAuthError as e:
             logger.warning(f"401 Auth error for user {user_id}: {e}")
             self.session_mgr.remove_session(user_id)
             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
         except GroupwareNetworkError as e:
             logger.error(f"Network error for user {user_id}: {e}")
             return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
@@ -239,13 +248,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                     },
                 )
 
-        except (GroupwareAuthError, GroupwareAPIError) as e:
+        except GroupwareAuthError as e:
             logger.warning(f"401 Auth error for user {user_id}: {e}")
             self.session_mgr.remove_session(user_id)
             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
         except GroupwareNetworkError as e:
             logger.error(f"Network error for user {user_id}: {e}")
             return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
@@ -303,10 +315,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                     "rooms": rooms_info,
                 },
             )
-        except (GroupwareAuthError, GroupwareAPIError) as e:
+        except GroupwareAuthError as e:
             logger.warning(f"401 Auth error for user {user_id}: {e}")
             self.session_mgr.remove_session(user_id)
             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+        except GroupwareNetworkError as e:
+            logger.error(f"Network error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
@@ -343,10 +361,16 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                     "schedules": schedules,
                 },
             )
-        except (GroupwareAuthError, GroupwareAPIError) as e:
+        except GroupwareAuthError as e:
             logger.warning(f"401 Auth error for user {user_id}: {e}")
             self.session_mgr.remove_session(user_id)
             return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+        except GroupwareNetworkError as e:
+            logger.error(f"Network error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Groupware API error for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))

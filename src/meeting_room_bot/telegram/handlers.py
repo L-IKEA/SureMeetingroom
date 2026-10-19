@@ -1,5 +1,6 @@
 """Telegram Bot Async Event Handlers."""
 
+import asyncio
 import logging
 from typing import Optional, Union
 from telegram import Update
@@ -71,7 +72,31 @@ from meeting_room_bot.telegram.states import (
 
 logger = logging.getLogger(__name__)
 
-fav_service = FavoriteService(JsonFavoriteRepository())
+# Active FavoriteService instance (Dependency Injected)
+_active_fav_service: Optional[FavoriteService] = None
+
+
+def get_favorite_service() -> FavoriteService:
+    """Get active favorite service instance (defaults to singleton JsonFavoriteRepository)."""
+    global _active_fav_service
+    # If fav_service was patched on the module by tests, respect it
+    mod_fav = globals().get("fav_service")
+    if mod_fav is not None:
+        return mod_fav
+    if _active_fav_service is None:
+        _active_fav_service = FavoriteService(JsonFavoriteRepository())
+    return _active_fav_service
+
+
+def set_favorite_service(service: FavoriteService):
+    """Inject active favorite service instance."""
+    global _active_fav_service, fav_service
+    _active_fav_service = service
+    fav_service = service
+
+
+# Module-level attribute for DI and backwards compatibility with tests patching handlers.fav_service
+fav_service: Optional[FavoriteService] = None
 
 
 async def safe_edit_message_text(query, text: str, reply_markup=None):
@@ -112,39 +137,41 @@ async def handle_unauthenticated_or_expired(query, status: QueryStatus, user_id:
     platform_uid = user_key.platform_user_id
 
     if status == QueryStatus.NOT_AUTHENTICATED:
+        token = token_service.create_token(user_key)
+        link_url = f"{base_url}/link/{token}"
         if is_dev:
-            token = token_service.create_token(user_key)
-            link_url = f"{base_url}/link/{token}"
             logger.info(f"\n[DEV] Account linking required for user_id: {platform_uid}\n[DEV] Open this URL in the PC browser:\n{link_url}\n")
             text = (
                 "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
                 "현재 로컬 개발 모드입니다.\n"
                 "PC 브라우저에서 계정 연결을 진행해주세요."
             )
+            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=None))
         else:
             text = (
                 "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
                 "회사 계정을 연결한 후 회의실 조회가 가능합니다."
             )
-        await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(platform_uid))
+            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=link_url))
         return True
 
     elif status == QueryStatus.SESSION_EXPIRED:
+        token = token_service.create_token(user_key)
+        link_url = f"{base_url}/link/{token}"
         if is_dev:
-            token = token_service.create_token(user_key)
-            link_url = f"{base_url}/link/{token}"
             logger.info(f"\n[DEV] Session expired for user_id: {platform_uid}\n[DEV] Open this URL in the PC browser to reconnect:\n{link_url}\n")
             text = (
                 "🔐 그룹웨어 로그인 세션이 만료되었습니다.\n\n"
                 "현재 로컬 개발 모드입니다.\n"
                 "PC 브라우저에서 다시 연결해주세요."
             )
+            await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(link_url=None))
         else:
             text = (
                 "🔐 그룹웨어 로그인 세션이 만료되었습니다.\n\n"
                 "다시 로그인하여 계정을 연결해주세요."
             )
-        await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(platform_uid))
+            await safe_edit_message_text(query, text, reply_markup=session_expired_keyboard(link_url=link_url))
         return True
     elif status == QueryStatus.NO_FAVORITES:
         text = (
@@ -192,17 +219,35 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data or ""
     state = user_state_mgr.get_state(user_id)
     provider = get_query_provider()
+    fav_service = get_favorite_service()
 
     try:
         logger.info(f"[telegram] user_id={user_id} callback={data}")
 
         # Account Connect Callback
         if data == CB_AUTH_CONNECT:
-            text = (
-                "🔐 그룹웨어 계정 연결\n\n"
-                "아래 버튼을 눌러 그룹웨어 계정으로 로그인해주세요."
-            )
-            await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(user_id))
+            from meeting_room_bot.account_link.token_service import token_service
+            from meeting_room_bot.telegram.keyboards import is_localhost_url
+            import os
+
+            base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
+            is_dev = is_localhost_url(base_url)
+            token = token_service.create_token(user_key)
+            link_url = f"{base_url}/link/{token}"
+            if is_dev:
+                logger.info(f"\n[DEV] Account linking required for user_id: {user_key.platform_user_id}\n[DEV] Open this URL in the PC browser:\n{link_url}\n")
+                text = (
+                    "🔐 그룹웨어 계정 연결이 필요합니다.\n\n"
+                    "현재 로컬 개발 모드입니다.\n"
+                    "PC 브라우저에서 계정 연결을 진행해주세요."
+                )
+                await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=None))
+            else:
+                text = (
+                    "🔐 그룹웨어 계정 연결\n\n"
+                    "아래 버튼을 눌러 그룹웨어 계정으로 로그인해주세요."
+                )
+                await safe_edit_message_text(query, text, reply_markup=unauthenticated_keyboard(link_url=link_url))
             return
 
         # Account Unlink Callback
@@ -235,7 +280,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == CB_MENU_NOW:
             logger.info(f"[telegram] user_id={user_id} callback=menu:now starting NOW flow")
             user_state_mgr.update_state(user_id, last_menu="now", scope="fav")
-            res = provider.get_available_rooms_now(user_id=user_key, scope="fav")
+            res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope="fav")
 
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
@@ -268,7 +313,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data == CB_MENU_WHERE:
             logger.info(f"[telegram] user_id={user_id} callback=menu:where starting WHERE flow")
             user_state_mgr.update_state(user_id, last_menu="where")
-            res = provider.get_locations(user_id=user_key)
+            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
 
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
@@ -296,7 +341,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             # Resolve location and room names using provider
-            loc_res = provider.get_locations(user_id=user_key)
+            loc_res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
             asset_name_map = {}
             if loc_res.status == QueryStatus.SUCCESS:
                 for loc in loc_res.data.get("locations", []):
@@ -328,7 +373,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 time_val = state.get("time", "14:00")
                 dur_val = state.get("duration", 60)
 
-                res = provider.get_available_rooms_at(
+                res = await asyncio.to_thread(
+                    provider.get_available_rooms_at,
                     user_id=user_key,
                     date_str=date_val,
                     start_time=time_val,
@@ -355,7 +401,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             else:  # Default 'now'
-                res = provider.get_available_rooms_now(user_id=user_key, scope=target_scope)
+                res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope=target_scope)
 
                 if await handle_unauthenticated_or_expired(query, res.status, user_key):
                     return
@@ -376,7 +422,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 8. Refresh Now
         if data == CB_REFRESH_NOW:
             curr_scope = state.get("scope", "fav")
-            res = provider.get_available_rooms_now(user_id=user_key, scope=curr_scope)
+            res = await asyncio.to_thread(provider.get_available_rooms_now, user_id=user_key, scope=curr_scope)
 
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
@@ -434,7 +480,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_val = resolve_date_str(state.get("date"))
             time_val = state.get("time", "14:00")
 
-            res = provider.get_available_rooms_at(
+            res = await asyncio.to_thread(
+                provider.get_available_rooms_at,
                 user_id=user_key,
                 date_str=date_val,
                 start_time=time_val,
@@ -464,7 +511,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asset_id = int(data.replace(CB_ASSET_PREFIX, ""))
             user_state_mgr.update_state(user_id, asset_id=asset_id, last_menu="where_asset")
 
-            res = provider.get_location_status(user_id=user_key, asset_id=asset_id)
+            res = await asyncio.to_thread(provider.get_location_status, user_id=user_key, asset_id=asset_id)
 
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
@@ -488,7 +535,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if data.startswith(CB_ROOM_PREFIX):
             room_id = int(data.replace(CB_ROOM_PREFIX, ""))
             asset_id = state.get("asset_id", 50)
-            res = provider.get_room_detail(user_id=user_key, asset_id=asset_id, room_id=room_id)
+            res = await asyncio.to_thread(provider.get_room_detail, user_id=user_key, asset_id=asset_id, room_id=room_id)
 
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
@@ -519,7 +566,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
                 return
 
-            res = provider.get_locations(user_id=user_key)
+            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
 
@@ -539,7 +586,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asset_id = int(data.replace(CB_FAV_ADD_ASSET_PREFIX, ""))
             added = fav_service.add_asset(user_key, asset_id)
 
-            res = provider.get_locations(user_id=user_key)
+            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
             asset_name = f"위치 {asset_id}"
             if res.status == QueryStatus.SUCCESS:
                 for loc in res.data.get("locations", []):
@@ -561,7 +608,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await handle_unauthenticated_or_expired(query, auth_res.status, user_key):
                 return
 
-            res = provider.get_locations(user_id=user_key)
+            res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
 
@@ -580,7 +627,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             asset_id = int(data.replace(CB_FAV_SEL_ASSET_PREFIX, ""))
             user_state_mgr.update_state(user_id, asset_id=asset_id)
-            res = provider.get_location_status(user_id=user_key, asset_id=asset_id)
+            res = await asyncio.to_thread(provider.get_location_status, user_id=user_key, asset_id=asset_id)
             if await handle_unauthenticated_or_expired(query, res.status, user_key):
                 return
 
@@ -620,7 +667,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await safe_edit_message_text(query, text, reply_markup=favorites_keyboard())
                 return
 
-            loc_res = provider.get_locations(user_id=user_key)
+            loc_res = await asyncio.to_thread(provider.get_locations, user_id=user_key)
             asset_items = []
             if loc_res.status == QueryStatus.SUCCESS:
                 for loc in loc_res.data.get("locations", []):

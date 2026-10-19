@@ -1,19 +1,28 @@
-"""JSON file implementation of FavoriteRepository."""
-
 import json
+import logging
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Set, Union
+import shutil
+import tempfile
+import threading
+import time
+from typing import Any, Dict, List, Optional, Set, Union
 
 from meeting_room_bot.favorites.models import Favorite, FavoriteType, UserFavorites
 from meeting_room_bot.favorites.repository import FavoriteRepository
 from meeting_room_bot.models.user_key import UserKey
 
+logger = logging.getLogger(__name__)
+
 
 class JsonFavoriteRepository(FavoriteRepository):
-    """File-based repository storing user favorites in JSON format."""
+    """File-based repository storing user favorites in JSON format with atomic write & thread safety."""
 
-    def __init__(self, file_path: str = "data/favorites.json"):
+    def __init__(self, file_path: Optional[str] = None):
+        if file_path is None:
+            file_path = os.environ.get("FAVORITES_FILE_PATH", "data/favorites.json")
         self.file_path = Path(file_path)
+        self._lock = threading.RLock()
 
     def _ensure_dir(self):
         """Create parent directory if it does not exist."""
@@ -38,28 +47,51 @@ class JsonFavoriteRepository(FavoriteRepository):
         return raw
 
     def _load_raw_data(self) -> Dict[str, Any]:
-        """Load raw data dictionary from JSON file."""
-        if not self.file_path.exists():
-            return {"users": {}}
+        """Load raw data dictionary from JSON file under thread lock with corruption backup."""
+        with self._lock:
+            if not self.file_path.exists():
+                return {"users": {}}
 
-        try:
-            with open(self.file_path, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    return {"users": {}}
-                data = json.loads(content)
-                if not isinstance(data, dict) or "users" not in data:
-                    return {"users": {}}
-                return data
-        except Exception:
-            # Fallback cleanly if file read or JSON parse fails
-            return {"users": {}}
+            try:
+                with open(self.file_path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if not content:
+                        return {"users": {}}
+                    data = json.loads(content)
+                    if not isinstance(data, dict) or "users" not in data:
+                        return {"users": {}}
+                    return data
+            except Exception as e:
+                logger.error(f"[JsonFavoriteRepository] Failed to read/parse favorites from {self.file_path}: {e}")
+                # If corrupted file exists and has content, create a backup to prevent silent permanent loss
+                try:
+                    if self.file_path.stat().st_size > 0:
+                        backup_path = self.file_path.with_name(f"{self.file_path.name}.corrupted.{int(time.time())}")
+                        shutil.copyfile(self.file_path, backup_path)
+                        logger.warning(f"[JsonFavoriteRepository] Preserved corrupted file at: {backup_path}")
+                except Exception as be:
+                    logger.error(f"[JsonFavoriteRepository] Failed to create corrupted backup: {be}")
+                return {"users": {}}
 
     def _save_raw_data(self, data: Dict[str, Any]):
-        """Save data dictionary to JSON file."""
-        self._ensure_dir()
-        with open(self.file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """Save data dictionary atomically using flush, fsync, and atomic rename under thread lock."""
+        with self._lock:
+            self._ensure_dir()
+            temp_path = self.file_path.with_name(f"{self.file_path.name}.tmp.{os.getpid()}.{time.time_ns()}")
+            try:
+                with open(temp_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_path, self.file_path)
+            except Exception as e:
+                logger.error(f"[JsonFavoriteRepository] Failed atomic save to {self.file_path}: {e}")
+                if temp_path.exists():
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+                raise
 
     def get_user_favorites(self, user_id: Union[UserKey, str]) -> UserFavorites:
         """Get UserFavorites for specific user_id."""
@@ -94,82 +126,87 @@ class JsonFavoriteRepository(FavoriteRepository):
 
     def add_asset(self, user_id: Union[UserKey, str], asset_id: int) -> bool:
         """Add asset ID to user's favorites (de-duplicated)."""
-        data = self._load_raw_data()
-        users = data.setdefault("users", {})
-        key = self._resolve_storage_key(user_id, users)
-        user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
+        with self._lock:
+            data = self._load_raw_data()
+            users = data.setdefault("users", {})
+            key = self._resolve_storage_key(user_id, users)
+            user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
 
-        assets_set = set(user_entry.get("favorite_assets", []))
-        if asset_id in assets_set:
-            return False  # Already exists
+            assets_set = set(user_entry.get("favorite_assets", []))
+            if asset_id in assets_set:
+                return False  # Already exists
 
-        assets_set.add(asset_id)
-        user_entry["favorite_assets"] = sorted(assets_set)
-        self._save_raw_data(data)
-        return True
+            assets_set.add(asset_id)
+            user_entry["favorite_assets"] = sorted(assets_set)
+            self._save_raw_data(data)
+            return True
 
     def add_room(self, user_id: Union[UserKey, str], room_id: int) -> bool:
         """Add room ID to user's favorites (de-duplicated)."""
-        data = self._load_raw_data()
-        users = data.setdefault("users", {})
-        key = self._resolve_storage_key(user_id, users)
-        user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
+        with self._lock:
+            data = self._load_raw_data()
+            users = data.setdefault("users", {})
+            key = self._resolve_storage_key(user_id, users)
+            user_entry = users.setdefault(key, {"favorite_assets": [], "favorite_rooms": []})
 
-        rooms_set = set(user_entry.get("favorite_rooms", []))
-        if room_id in rooms_set:
-            return False  # Already exists
+            rooms_set = set(user_entry.get("favorite_rooms", []))
+            if room_id in rooms_set:
+                return False  # Already exists
 
-        rooms_set.add(room_id)
-        user_entry["favorite_rooms"] = sorted(rooms_set)
-        self._save_raw_data(data)
-        return True
+            rooms_set.add(room_id)
+            user_entry["favorite_rooms"] = sorted(rooms_set)
+            self._save_raw_data(data)
+            return True
 
     def remove_asset(self, user_id: Union[UserKey, str], asset_id: int) -> bool:
         """Remove asset ID from user's favorites."""
-        data = self._load_raw_data()
-        users = data.get("users", {})
-        key = self._resolve_storage_key(user_id, users)
-        if key not in users:
-            return False
+        with self._lock:
+            data = self._load_raw_data()
+            users = data.get("users", {})
+            key = self._resolve_storage_key(user_id, users)
+            if key not in users:
+                return False
 
-        user_entry = users[key]
-        assets_set = set(user_entry.get("favorite_assets", []))
+            user_entry = users[key]
+            assets_set = set(user_entry.get("favorite_assets", []))
 
-        if asset_id not in assets_set:
-            return False
+            if asset_id not in assets_set:
+                return False
 
-        assets_set.remove(asset_id)
-        user_entry["favorite_assets"] = sorted(assets_set)
-        self._save_raw_data(data)
-        return True
+            assets_set.remove(asset_id)
+            user_entry["favorite_assets"] = sorted(assets_set)
+            self._save_raw_data(data)
+            return True
 
     def remove_room(self, user_id: Union[UserKey, str], room_id: int) -> bool:
         """Remove room ID from user's favorites."""
-        data = self._load_raw_data()
-        users = data.get("users", {})
-        key = self._resolve_storage_key(user_id, users)
-        if key not in users:
-            return False
+        with self._lock:
+            data = self._load_raw_data()
+            users = data.get("users", {})
+            key = self._resolve_storage_key(user_id, users)
+            if key not in users:
+                return False
 
-        user_entry = users[key]
-        rooms_set = set(user_entry.get("favorite_rooms", []))
+            user_entry = users[key]
+            rooms_set = set(user_entry.get("favorite_rooms", []))
 
-        if room_id not in rooms_set:
-            return False
+            if room_id not in rooms_set:
+                return False
 
-        rooms_set.remove(room_id)
-        user_entry["favorite_rooms"] = sorted(rooms_set)
-        self._save_raw_data(data)
-        return True
+            rooms_set.remove(room_id)
+            user_entry["favorite_rooms"] = sorted(rooms_set)
+            self._save_raw_data(data)
+            return True
 
     def clear(self, user_id: Union[UserKey, str]) -> bool:
         """Clear all favorites for a user."""
-        data = self._load_raw_data()
-        users = data.get("users", {})
-        key = self._resolve_storage_key(user_id, users)
-        if key in users:
-            del users[key]
-            self._save_raw_data(data)
-            return True
-        return False
+        with self._lock:
+            data = self._load_raw_data()
+            users = data.get("users", {})
+            key = self._resolve_storage_key(user_id, users)
+            if key in users:
+                del users[key]
+                self._save_raw_data(data)
+                return True
+            return False
 
