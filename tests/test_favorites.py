@@ -194,14 +194,14 @@ class TestFavoriteRepositoryAndService:
         assert favs.is_empty()
 
     def test_11_malformed_json_handling(self, tmp_path):
-        """11. Malformed JSON file falls back cleanly to empty state."""
+        """11. Malformed JSON file raises FavoriteStorageCorruptionError and prevents silent empty state."""
+        from meeting_room_bot.favorites.json_repository import FavoriteStorageCorruptionError
         json_path = tmp_path / "corrupt.json"
         json_path.write_text("INVALID JSON {{{", encoding="utf-8")
 
         repo = JsonFavoriteRepository(str(json_path))
-        favs = repo.get_user_favorites("userA")
-
-        assert favs.is_empty()
+        with pytest.raises(FavoriteStorageCorruptionError):
+            repo.get_user_favorites("userA")
 
     def test_12_asset_and_room_deduplication(self, temp_repo, mock_meeting_service):
         """12. Asset + Room favorite de-duplication in get_favorite_rooms."""

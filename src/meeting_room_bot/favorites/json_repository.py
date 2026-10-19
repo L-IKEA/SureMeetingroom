@@ -15,6 +15,11 @@ from meeting_room_bot.models.user_key import UserKey
 logger = logging.getLogger(__name__)
 
 
+class FavoriteStorageCorruptionError(Exception):
+    """Raised when favorites storage file exists but is corrupted or schema-invalid."""
+    pass
+
+
 class JsonFavoriteRepository(FavoriteRepository):
     """File-based repository storing user favorites in JSON format with atomic write & thread safety."""
 
@@ -46,8 +51,20 @@ class JsonFavoriteRepository(FavoriteRepository):
             return f"telegram:{raw}"
         return raw
 
+    def _create_corrupted_backup(self) -> Optional[Path]:
+        """Create a timestamped backup copy of the corrupted file."""
+        try:
+            if self.file_path.exists() and self.file_path.stat().st_size > 0:
+                backup_path = self.file_path.with_name(f"{self.file_path.name}.corrupted.{int(time.time())}")
+                shutil.copyfile(self.file_path, backup_path)
+                logger.error(f"[JsonFavoriteRepository] Preserved corrupted favorites file at: {backup_path}")
+                return backup_path
+        except Exception as e:
+            logger.error(f"[JsonFavoriteRepository] Failed to create corrupted backup: {e}")
+        return None
+
     def _load_raw_data(self) -> Dict[str, Any]:
-        """Load raw data dictionary from JSON file under thread lock with corruption backup."""
+        """Load raw data dictionary from JSON file under thread lock with strict schema validation."""
         with self._lock:
             if not self.file_path.exists():
                 return {"users": {}}
@@ -55,23 +72,34 @@ class JsonFavoriteRepository(FavoriteRepository):
             try:
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     content = f.read().strip()
-                    if not content:
-                        return {"users": {}}
-                    data = json.loads(content)
-                    if not isinstance(data, dict) or "users" not in data:
-                        return {"users": {}}
-                    return data
+                if not content:
+                    return {"users": {}}
+                data = json.loads(content)
             except Exception as e:
-                logger.error(f"[JsonFavoriteRepository] Failed to read/parse favorites from {self.file_path}: {e}")
-                # If corrupted file exists and has content, create a backup to prevent silent permanent loss
-                try:
-                    if self.file_path.stat().st_size > 0:
-                        backup_path = self.file_path.with_name(f"{self.file_path.name}.corrupted.{int(time.time())}")
-                        shutil.copyfile(self.file_path, backup_path)
-                        logger.warning(f"[JsonFavoriteRepository] Preserved corrupted file at: {backup_path}")
-                except Exception as be:
-                    logger.error(f"[JsonFavoriteRepository] Failed to create corrupted backup: {be}")
-                return {"users": {}}
+                self._create_corrupted_backup()
+                logger.error(f"[JsonFavoriteRepository] Corruption: Failed to parse favorites JSON from {self.file_path}: {e}")
+                raise FavoriteStorageCorruptionError(f"Corrupted favorites JSON in {self.file_path}: {e}") from e
+
+            # Schema validation
+            if not isinstance(data, dict):
+                self._create_corrupted_backup()
+                msg = f"Corrupted favorites schema: root must be a dict, got {type(data).__name__}"
+                logger.error(f"[JsonFavoriteRepository] {msg}")
+                raise FavoriteStorageCorruptionError(msg)
+
+            if "users" not in data:
+                self._create_corrupted_backup()
+                msg = "Corrupted favorites schema: missing required 'users' field"
+                logger.error(f"[JsonFavoriteRepository] {msg}")
+                raise FavoriteStorageCorruptionError(msg)
+
+            if not isinstance(data["users"], dict):
+                self._create_corrupted_backup()
+                msg = f"Corrupted favorites schema: 'users' field must be a dict, got {type(data['users']).__name__}"
+                logger.error(f"[JsonFavoriteRepository] {msg}")
+                raise FavoriteStorageCorruptionError(msg)
+
+            return data
 
     def _save_raw_data(self, data: Dict[str, Any]):
         """Save data dictionary atomically using flush, fsync, and atomic rename under thread lock."""

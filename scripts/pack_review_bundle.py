@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Production Foundation."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Final Production Foundation."""
 
 import os
 from pathlib import Path
@@ -10,17 +10,18 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_1_foundation"
+HISTORY_SUBDIR = "v0.2_phase2_1_final"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_foundation_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_final_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
 TASK_BASE_COMMIT = "79ecbe9506285866480a906c804aca49e2d79d66"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_foundation/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_final/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
+    (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
 
     # Phase 2.1 Changed Core & Config Files
     ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
@@ -37,9 +38,12 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
     ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
     ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+    ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
-    # Phase 2.1 Hardening Test Suite
+    # Hardening Test Suite
     ("tests/test_phase2_1_foundation.py", "tests/test_phase2_1_foundation.py"),
+    ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
+    ("tests/test_favorites.py", "tests/test_favorites.py"),
 
     # Phase 1 & Pre-Phase 2 Source Files (Foundation)
     ("src/meeting_room_bot/utils/date_utils.py", "src/meeting_room_bot/utils/date_utils.py"),
@@ -54,11 +58,9 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
     ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
-    ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
     # Additional Test Files
     ("tests/test_dynamic_date_handling.py", "tests/test_dynamic_date_handling.py"),
-    ("tests/test_favorites.py", "tests/test_favorites.py"),
     ("tests/test_platform_abstraction.py", "tests/test_platform_abstraction.py"),
     ("tests/test_real_favorites.py", "tests/test_real_favorites.py"),
     ("tests/test_real_mode_auth_flow.py", "tests/test_real_mode_auth_flow.py"),
@@ -78,7 +80,6 @@ BUNDLE_FILES = [
     ("tests/test_providers.py", "tests/test_providers.py"),
     ("tests/test_multi_user_isolation.py", "tests/test_multi_user_isolation.py"),
     ("tests/test_account_link.py", "tests/test_account_link.py"),
-    ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
 
     # Runtime Closure
     ("src/meeting_room_bot/services/availability_service.py", "src/meeting_room_bot/services/availability_service.py"),
@@ -220,7 +221,7 @@ def main():
     patch_path.write_bytes(diff_bytes)
     print(f"[OK] Updated REVIEW_GIT_DIFF.patch ({len(diff_bytes):,} bytes, Task Base Commit -> HEAD, UTF-8)")
 
-    # Also update cumulative diff from Release Base Tag if helpful
+    # Also update cumulative diff from Release Base Tag
     cumulative_patch_path = OUTPUT_DIR / "CUMULATIVE_GIT_DIFF.patch"
     cum_diff_bytes = subprocess.check_output(
         ["git", "diff", RELEASE_BASE_TAG, "--", ".", ":(exclude)review_bundles"],

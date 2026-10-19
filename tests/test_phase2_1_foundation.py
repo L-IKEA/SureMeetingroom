@@ -1,21 +1,23 @@
 """Tests for Phase 2.1: Production Foundation Hardening.
 
 Covers:
-1. Token single generation and keyboard separation
+1. Token single generation and keyboard separation (presentation layer creates 0 tokens)
 2. UserKey namespace preservation & AccountLink round-trip
 3. Token store hygiene (consume, expiry cleanup, user token replacement)
 4. Auth / API / Network error classification
 5. FavoriteService single-instance wiring
-6. Atomic favorite write & corrupted file safety
+6. Atomic favorite write, corruption defense, schema validation & write blocking
 7. Blocking I/O event-loop isolation (asyncio.to_thread)
-8. IP rate limiting on login endpoint
-9. Security response headers
+8. IP rate limiting on login endpoint & X-Forwarded-For spoofing immunity
+9. Rate limit store cleanup
+10. Security response headers
 """
 
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
 import time
@@ -24,11 +26,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 import pytest
 
-from meeting_room_bot.account_link.app import app, reset_rate_limits
+from meeting_room_bot.account_link.app import (
+    app,
+    cleanup_rate_limits,
+    reset_rate_limits,
+    _login_attempts_by_ip,
+)
 from meeting_room_bot.account_link.token_service import AccountLinkTokenService, token_service
 from meeting_room_bot.auth.session_manager import UserSessionManager, session_manager
 from meeting_room_bot.config import AppConfig, get_config
-from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
+from meeting_room_bot.favorites.json_repository import (
+    FavoriteStorageCorruptionError,
+    JsonFavoriteRepository,
+)
 from meeting_room_bot.favorites.service import FavoriteService
 from meeting_room_bot.groupware.client import (
     GroupwareAPIError,
@@ -43,10 +53,12 @@ from meeting_room_bot.telegram.bot import build_application
 from meeting_room_bot.telegram.handlers import (
     button_callback,
     get_favorite_service,
+    get_query_provider,
     handle_unauthenticated_or_expired,
     set_favorite_service,
     set_query_provider,
 )
+import meeting_room_bot.telegram.keyboards as keyboards_module
 from meeting_room_bot.telegram.keyboards import (
     session_expired_keyboard,
     unauthenticated_keyboard,
@@ -54,9 +66,21 @@ from meeting_room_bot.telegram.keyboards import (
 
 
 # ---------------------------------------------------------------------------
-# 1. Token 1회 생성 & Keyboard 분리
+# 1. Token 1회 생성 & Keyboard 분리 (Presentation 0 Token Creation)
 # ---------------------------------------------------------------------------
 class TestTokenGenerationSingleTime:
+    def test_keyboards_module_does_not_import_or_call_token_service(self):
+        """Ensure keyboards.py has no dependency on token_service and 0 create_token calls."""
+        # 1. Module namespace check
+        assert "token_service" not in keyboards_module.__dict__
+        assert "AccountLinkTokenService" not in keyboards_module.__dict__
+
+        # 2. Source code static check
+        keyboards_path = Path(keyboards_module.__file__)
+        content = keyboards_path.read_text(encoding="utf-8")
+        assert "create_token" not in content
+        assert "token_service" not in content
+
     def test_keyboards_do_not_generate_tokens_when_given_url(self):
         """Keyboards receive prepared link_url and do not create security tokens."""
         url = "https://meeting.example.com/link/custom_tok_123"
@@ -244,7 +268,6 @@ class TestFavoriteServiceSingleInstanceWiring:
             assert app_builder is not None
 
             handler_fav_service = get_favorite_service()
-            from meeting_room_bot.telegram.handlers import get_query_provider
             provider = get_query_provider()
             assert isinstance(provider, RealMeetingRoomProvider)
             assert provider.favorite_service is handler_fav_service
@@ -253,7 +276,7 @@ class TestFavoriteServiceSingleInstanceWiring:
 # ---------------------------------------------------------------------------
 # 6. Favorites JSON Safe Atomic Write & Corruption Defense
 # ---------------------------------------------------------------------------
-class TestFavoritesAtomicWrite:
+class TestFavoritesAtomicWriteAndCorruptionDefense:
     def test_atomic_write_creates_valid_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = os.path.join(tmpdir, "favorites.json")
@@ -269,22 +292,64 @@ class TestFavoritesAtomicWrite:
             assert data["users"]["telegram:safe_write_user"]["favorite_assets"] == [50]
             assert data["users"]["telegram:safe_write_user"]["favorite_rooms"] == [101]
 
-    def test_corrupted_json_is_backed_up_and_not_wiped_blindly(self):
+    def test_invalid_json_blocks_write_and_preserves_corrupted_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = os.path.join(tmpdir, "favorites.json")
-            # Write invalid JSON
+            corrupt_content = "{invalid-json-content: corrupt"
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write("{invalid-json-content: corrupt")
+                f.write(corrupt_content)
 
             repo = JsonFavoriteRepository(file_path=file_path)
-            # Loading corrupted file should handle safely
-            data = repo._load_raw_data()
-            assert data == {"users": {}}
+            u = UserKey("telegram", "blocked_user")
+
+            # Mutation must raise FavoriteStorageCorruptionError and block write
+            with pytest.raises(FavoriteStorageCorruptionError):
+                repo.add_asset(u, 50)
+
+            # File must NOT have been overwritten
+            with open(file_path, "r", encoding="utf-8") as f:
+                assert f.read() == corrupt_content
 
             # Corrupted backup file should have been created
             files = os.listdir(tmpdir)
             corrupted_backups = [fn for fn in files if fn.startswith("favorites.json.corrupted")]
             assert len(corrupted_backups) == 1
+
+    def test_missing_users_field_blocks_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump({"other_key": 123}, f)
+
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "schema_user")
+
+            with pytest.raises(FavoriteStorageCorruptionError, match="missing required 'users' field"):
+                repo.add_asset(u, 50)
+
+    def test_users_field_not_a_dict_blocks_write(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump({"users": ["not", "a", "dict"]}, f)
+
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "schema_user2")
+
+            with pytest.raises(FavoriteStorageCorruptionError, match="'users' field must be a dict"):
+                repo.add_asset(u, 50)
+
+    def test_read_on_corrupted_file_raises_corruption_error_instead_of_silent_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = os.path.join(tmpdir, "favorites.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("corrupted content")
+
+            repo = JsonFavoriteRepository(file_path=file_path)
+            u = UserKey("telegram", "read_corrupted_user")
+
+            with pytest.raises(FavoriteStorageCorruptionError):
+                repo.get_user_favorites(u)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +410,43 @@ class TestRateLimitingAndSecurityHeaders:
             assert resp_exceed.status_code == 429
             assert "시도 횟수가 너무 많습니다" in resp_exceed.text
 
+        reset_rate_limits()
+
+    def test_spoofed_x_forwarded_for_header_does_not_bypass_rate_limit(self):
+        """Application strictly relies on request.client.host; spoofed X-Forwarded-For cannot evade rate limits."""
+        reset_rate_limits()
+        client = TestClient(app)
+
+        with patch.dict(os.environ, {"RATE_LIMIT_LOGIN_PER_MINUTE": "2"}):
+            # 1st attempt with fake IP 1.1.1.1
+            tok1 = token_service.create_token(UserKey("telegram", "spoof_1"))
+            resp1 = client.post(f"/link/{tok1}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "1.1.1.1"})
+            assert resp1.status_code == 400
+
+            # 2nd attempt with fake IP 2.2.2.2
+            tok2 = token_service.create_token(UserKey("telegram", "spoof_2"))
+            resp2 = client.post(f"/link/{tok2}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "2.2.2.2"})
+            assert resp2.status_code == 400
+
+            # 3rd attempt with fake IP 3.3.3.3 -> MUST be blocked with 429 because actual client IP is identical!
+            tok3 = token_service.create_token(UserKey("telegram", "spoof_3"))
+            resp3 = client.post(f"/link/{tok3}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "3.3.3.3"})
+            assert resp3.status_code == 429
+            assert "시도 횟수가 너무 많습니다" in resp3.text
+
+        reset_rate_limits()
+
+    def test_rate_limit_cleanup_purges_stale_entries(self):
+        """Verify cleanup_rate_limits removes IP entries older than max_age."""
+        reset_rate_limits()
+        now = time.time()
+        _login_attempts_by_ip["192.168.1.100"] = [now - 120.0]  # 2 min old
+        _login_attempts_by_ip["192.168.1.200"] = [now - 5.0]    # 5 sec old
+
+        removed = cleanup_rate_limits(max_age_seconds=60.0)
+        assert removed == 1
+        assert "192.168.1.100" not in _login_attempts_by_ip
+        assert "192.168.1.200" in _login_attempts_by_ip
         reset_rate_limits()
 
     def test_security_response_headers_present(self):

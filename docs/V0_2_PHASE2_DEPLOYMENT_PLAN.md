@@ -144,19 +144,21 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
 
 ### 4.2 Account Link URL Token 노출 방지 설계 (URL Exposure Mitigation)
 - **현재 구조와 위험**:
-  현재 `https://<domain>/link/<token>` URL은 브라우저 히스토리, 웹 프록시 로그, 리퍼러 헤더 등에 잔존할 수 있습니다.
-- **Phase 2.1 적용 보안 헤더**:
+  현재 `https://<domain>/link/<token>` URL은 브라우저 히스토리, 웹 프록시 로그, 리퍼러 헤더 등에 잔존할 수 있는 잠재적 위험이 있습니다.
+- **Phase 2.1 적용 보안 헤더 (Implemented)**:
   - `Referrer-Policy: no-referrer`: 타 사이트로 이동 시 토큰 URL 유출 방지
   - `Cache-Control: no-store, no-cache, must-revalidate`: 브라우저/프록시 디스크 캐싱 방지
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY` 및 `Content-Security-Policy: frame-ancestors 'none'`: Clickjacking 방어
   - `<meta name="referrer" content="no-referrer">`: 템플릿 레벨 리퍼러 차단
-- **운영 목표 권장 흐름 (Exchange Pattern)**:
+  > [!NOTE]
+  > **보안 한계 명시**: 위 보안 헤더는 브라우저 캐싱과 외부 리퍼러 유출을 차단하지만, 브라우저 주소창 자체나 Reverse Proxy 액세스 로그에 남는 토큰 문자열을 완전히 제거하지는 못합니다.
+- **운영 목표 교환 아키텍처 (Planned Architecture / Phase 2.2)**:
   1. `GET /link/<token>` 요청 수신 시 토큰 검증
   2. 일회성 Secure / HttpOnly / SameSite 쿠키 또는 단기 서버 세션 state로 교환
   3. `303 See Other` 리다이렉트 -> `/link/login`
   4. 브라우저 주소창에서 원본 토큰 파라미터 완전 제거
-  5. 웹서버 access log 포맷에서 `/link/` 경로의 토큰 마스킹 설정 권고
+  5. 웹서버 access log 포맷에서 `/link/` 경로의 토큰 마스킹 설정 적용
 
 ---
 
@@ -207,7 +209,7 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
 | `ACCOUNT_LINK_HOST` | `"0.0.0.0"` | **연결됨** | `run_local_app.py`, `config.py` |
 | `ACCOUNT_LINK_PORT` | `8000` | **연결됨** | `run_local_app.py`, `config.py` |
 | `ACCOUNT_LINK_TOKEN_TTL` | `600` | **연결됨** (Phase 2.1) | `token_service.py`, `config.py` |
-| `FORWARDED_ALLOW_IPS` | `"127.0.0.1"` | **연결됨** (Phase 2.1) | `config.py`, uvicorn runner |
+| `FORWARDED_ALLOW_IPS` | `"127.0.0.1"` | **연결됨** (Phase 2.1) | `config.py`, `scripts/run_local_app.py` (Uvicorn `forwarded_allow_ips`) |
 | `RATE_LIMIT_LOGIN_PER_MINUTE` | `10` | **연결됨** (Phase 2.1) | `app.py` (IP별 sliding window 제한) |
 | `GROUPWARE_BASE_URL` | `"https://gw.suresofttech.com"` | **연결됨** (Phase 2.1) | `client.py`, `config.py` |
 | `FAVORITES_FILE_PATH` | `"data/favorites.json"` | **연결됨** (Phase 2.1) | `json_repository.py`, `config.py` |

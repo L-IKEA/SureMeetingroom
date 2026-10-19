@@ -377,21 +377,9 @@ def is_localhost_url(url: str) -> bool:
 def unauthenticated_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
     """Build guidance keyboard when user has no active Groupware session.
 
-    Accepts link_url directly from caller. Does NOT generate security tokens.
+    Accepts prepared link_url directly from caller. Does NOT generate security tokens.
     If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
-    For backward compatibility with legacy tests passing user_id: handles non-URL strings cleanly.
     """
-    if link_url and not (link_url.startswith("http://") or link_url.startswith("https://")):
-        # Legacy backward-compatibility path for v0.1 tests passing user_id
-        import os
-        base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
-        if not is_localhost_url(base_url):
-            from meeting_room_bot.account_link.token_service import token_service
-            token = token_service.create_token(str(link_url))
-            link_url = f"{base_url}/link/{token}"
-        else:
-            link_url = None
-
     keyboard = []
     if link_url and not is_localhost_url(link_url):
         keyboard.append([InlineKeyboardButton("🔐 회사 계정 연결", url=link_url)])
@@ -402,21 +390,9 @@ def unauthenticated_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMa
 def session_expired_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
     """Build guidance keyboard when user session has expired (401).
 
-    Accepts link_url directly from caller. Does NOT generate security tokens.
+    Accepts prepared link_url directly from caller. Does NOT generate security tokens.
     If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
-    For backward compatibility with legacy tests passing user_id: handles non-URL strings cleanly.
     """
-    if link_url and not (link_url.startswith("http://") or link_url.startswith("https://")):
-        # Legacy backward-compatibility path for v0.1 tests passing user_id
-        import os
-        base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
-        if not is_localhost_url(base_url):
-            from meeting_room_bot.account_link.token_service import token_service
-            token = token_service.create_token(str(link_url))
-            link_url = f"{base_url}/link/{token}"
-        else:
-            link_url = None
-
     keyboard = []
     if link_url and not is_localhost_url(link_url):
         keyboard.append([InlineKeyboardButton("🔐 다시 연결", url=link_url)])

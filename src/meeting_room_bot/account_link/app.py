@@ -19,6 +19,19 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
 _login_attempts_by_ip: Dict[str, List[float]] = {}
 _rate_limit_lock = threading.Lock()
+MAX_RATE_LIMIT_ENTRIES = 10000
+
+
+def cleanup_rate_limits(max_age_seconds: float = 60.0) -> int:
+    """Purge stale rate limit tracking entries older than max_age_seconds. Return removed count."""
+    now = time.time()
+    removed = 0
+    with _rate_limit_lock:
+        stale_ips = [ip for ip, ts in _login_attempts_by_ip.items() if not ts or (now - ts[-1] > max_age_seconds)]
+        for ip in stale_ips:
+            del _login_attempts_by_ip[ip]
+            removed += 1
+    return removed
 
 
 def check_ip_rate_limit(client_ip: str, limit_per_minute: int) -> bool:
@@ -27,6 +40,18 @@ def check_ip_rate_limit(client_ip: str, limit_per_minute: int) -> bool:
         return True
     now = time.time()
     with _rate_limit_lock:
+        # Periodic cleanup of expired entries if dictionary grows
+        if len(_login_attempts_by_ip) > 100:
+            stale_ips = [ip for ip, ts in _login_attempts_by_ip.items() if not ts or (now - ts[-1] > 60.0)]
+            for ip in stale_ips:
+                del _login_attempts_by_ip[ip]
+
+        # Prevent unbounded entry growth from randomized spoofed IPs
+        if len(_login_attempts_by_ip) >= MAX_RATE_LIMIT_ENTRIES and client_ip not in _login_attempts_by_ip:
+            sorted_ips = sorted(_login_attempts_by_ip.items(), key=lambda item: item[1][-1] if item[1] else 0)
+            for ip, _ in sorted_ips[:MAX_RATE_LIMIT_ENTRIES // 5]:
+                del _login_attempts_by_ip[ip]
+
         attempts = _login_attempts_by_ip.get(client_ip, [])
         valid_attempts = [t for t in attempts if now - t < 60.0]
         if len(valid_attempts) >= limit_per_minute:
@@ -92,11 +117,10 @@ def create_app() -> FastAPI:
         password: str = Form(...),
     ):
         """Process login form submission and bind session to user_id upon success."""
-        # 0. Check IP rate limit
+        # 0. Check IP rate limit strictly using request.client.host
+        # In Reverse Proxy deployments, Uvicorn's ProxyHeadersMiddleware (configured with forwarded_allow_ips)
+        # securely rewrites request.client.host ONLY from trusted proxies. We never trust raw X-Forwarded-For headers.
         client_ip = request.client.host if request.client else "127.0.0.1"
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
 
         config = get_config()
         if not check_ip_rate_limit(client_ip, config.rate_limit_login_per_minute):

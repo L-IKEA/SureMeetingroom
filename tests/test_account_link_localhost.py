@@ -38,25 +38,24 @@ class TestLocalhostAccountLinking:
         assert is_localhost_url("https://my-domain.com") is False
 
     def test_2_localhost_url_does_not_create_telegram_url_button(self):
-        """Test 2: Localhost URL does NOT add url parameter to InlineKeyboardButton (prevents Telegram BadRequest)."""
-        with patch.dict(os.environ, {"ACCOUNT_LINK_BASE_URL": "http://localhost:8000"}):
-            kb = unauthenticated_keyboard("user_local")
-            buttons = kb.inline_keyboard
+        """Test 2: Localhost URL (or link_url=None) does NOT add url parameter to InlineKeyboardButton."""
+        kb = unauthenticated_keyboard(link_url=None)
+        buttons = kb.inline_keyboard
 
-            # Ensure no button has a url attribute
-            for row in buttons:
-                for btn in row:
-                    assert getattr(btn, "url", None) is None
+        # Ensure no button has a url attribute
+        for row in buttons:
+            for btn in row:
+                assert getattr(btn, "url", None) is None
 
     def test_3_https_url_creates_telegram_url_button(self):
         """Test 3: Production HTTPS URL creates InlineKeyboardButton with url parameter."""
-        with patch.dict(os.environ, {"ACCOUNT_LINK_BASE_URL": "https://company-link.com"}):
-            kb = unauthenticated_keyboard("user_https")
-            buttons = kb.inline_keyboard
+        url = "https://company-link.com/link/secure_token_abc"
+        kb = unauthenticated_keyboard(link_url=url)
+        buttons = kb.inline_keyboard
 
-            # First row should have url parameter
-            assert buttons[0][0].url is not None
-            assert buttons[0][0].url.startswith("https://company-link.com/link/")
+        # First row should have url parameter
+        assert buttons[0][0].url is not None
+        assert buttons[0][0].url == url
 
     @pytest.mark.anyio
     async def test_4_dev_mode_prints_token_url_to_console_log(self, caplog):
