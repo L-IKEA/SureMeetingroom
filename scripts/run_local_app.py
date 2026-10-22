@@ -46,12 +46,20 @@ async def main():
     print("=======================================================\n")
     print("Press Ctrl+C to stop.\n")
 
-    # 1. Instantiate FastAPI Web Server
-    host = os.environ.get("ACCOUNT_LINK_HOST", "0.0.0.0")
-    port = int(os.environ.get("ACCOUNT_LINK_PORT", "8000"))
+    # 1. Instantiate FastAPI Web Server with Config integration
+    from meeting_room_bot.config import get_config
+    app_config = get_config()
+
     fastapi_app = create_app()
 
-    config = uvicorn.Config(app=fastapi_app, host=host, port=port, log_level="warning")
+    config = uvicorn.Config(
+        app=fastapi_app,
+        host=app_config.account_link_host,
+        port=app_config.account_link_port,
+        proxy_headers=True,
+        forwarded_allow_ips=app_config.forwarded_allow_ips,
+        log_level="warning",
+    )
     server = uvicorn.Server(config)
 
     # 2. Build Telegram Application

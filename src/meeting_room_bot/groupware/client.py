@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+import os
 import requests
 
 
@@ -28,7 +29,9 @@ class GroupwareAPIError(GroupwareError):
 class GroupwareClient:
     """HTTP Client for Groupware Meeting Room API using requests.Session."""
 
-    def __init__(self, base_url: str = "https://gw.suresofttech.com"):
+    def __init__(self, base_url: Optional[str] = None):
+        if base_url is None:
+            base_url = os.environ.get("GROUPWARE_BASE_URL", "https://gw.suresofttech.com")
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({

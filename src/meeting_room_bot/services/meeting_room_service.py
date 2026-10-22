@@ -2,10 +2,10 @@
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from meeting_room_bot.groupware.client import GroupwareClient
-from meeting_room_bot.models import Asset, Reservation, Room
+from meeting_room_bot.models import Asset, Reservation, Room, UserKey
 from meeting_room_bot.services.availability_service import AvailabilityService
 from meeting_room_bot.services.room_status_service import RoomStatus, RoomStatusService
 
@@ -344,7 +344,7 @@ class MeetingRoomService:
 
     def get_available_favorite_rooms_now(
         self,
-        user_id: str,
+        user_id: Union[UserKey, str],
         favorite_service: Any,
         now: Optional[datetime] = None,
     ) -> List[Dict[str, Any]]:
@@ -359,7 +359,7 @@ class MeetingRoomService:
         else:
             now = now.astimezone(SEOUL_TZ)
 
-        fav_tuples = favorite_service.get_favorite_rooms(user_id)
+        fav_tuples = favorite_service.get_favorite_rooms(user_id, meeting_room_service=self)
         if not fav_tuples:
             return []
 
@@ -391,7 +391,7 @@ class MeetingRoomService:
 
     def get_available_favorite_rooms_at(
         self,
-        user_id: str,
+        user_id: Union[UserKey, str],
         favorite_service: Any,
         start_time: datetime,
         end_time: datetime,
@@ -400,7 +400,7 @@ class MeetingRoomService:
 
         Returns empty list [] if user has no favorites.
         """
-        fav_tuples = favorite_service.get_favorite_rooms(user_id)
+        fav_tuples = favorite_service.get_favorite_rooms(user_id, meeting_room_service=self)
         if not fav_tuples:
             return []
 

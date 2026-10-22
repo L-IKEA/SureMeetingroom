@@ -1,6 +1,6 @@
 """Telegram InlineKeyboard builders."""
 
-from typing import List
+from typing import List, Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from meeting_room_bot.telegram.states import (
@@ -374,47 +374,29 @@ def is_localhost_url(url: str) -> bool:
     return "localhost" in url_lower or "127.0.0.1" in url_lower or not url_lower.startswith("https://")
 
 
-def unauthenticated_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
-    """Build guidance keyboard when user has no active Groupware session."""
-    from meeting_room_bot.account_link.token_service import token_service
-    import os
+def unauthenticated_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
+    """Build guidance keyboard when user has no active Groupware session.
 
-    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
-    token = token_service.create_token(str(user_id))
-    url = f"{base_url}/link/{token}"
-
-    if is_localhost_url(base_url):
-        # Localhost cannot be sent as Telegram URL button (Telegram BadRequest error)
-        keyboard = [
-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
-        ]
-    else:
-        # Production HTTPS URL can be sent as Telegram URL button
-        keyboard = [
-            [InlineKeyboardButton("🔐 회사 계정 연결", url=url)],
-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
-        ]
+    Accepts prepared link_url directly from caller. Does NOT generate security tokens.
+    If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
+    """
+    keyboard = []
+    if link_url and not is_localhost_url(link_url):
+        keyboard.append([InlineKeyboardButton("🔐 회사 계정 연결", url=link_url)])
+    keyboard.append([InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)])
     return InlineKeyboardMarkup(keyboard)
 
 
-def session_expired_keyboard(user_id: str = "default_user") -> InlineKeyboardMarkup:
-    """Build guidance keyboard when user session has expired (401)."""
-    from meeting_room_bot.account_link.token_service import token_service
-    import os
+def session_expired_keyboard(link_url: Optional[str] = None) -> InlineKeyboardMarkup:
+    """Build guidance keyboard when user session has expired (401).
 
-    base_url = os.environ.get("ACCOUNT_LINK_BASE_URL", "http://localhost:8000").rstrip("/")
-    token = token_service.create_token(str(user_id))
-    url = f"{base_url}/link/{token}"
-
-    if is_localhost_url(base_url):
-        keyboard = [
-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
-        ]
-    else:
-        keyboard = [
-            [InlineKeyboardButton("🔐 다시 연결", url=url)],
-            [InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)],
-        ]
+    Accepts prepared link_url directly from caller. Does NOT generate security tokens.
+    If link_url is provided and is a valid HTTPS/external URL, renders the URL button.
+    """
+    keyboard = []
+    if link_url and not is_localhost_url(link_url):
+        keyboard.append([InlineKeyboardButton("🔐 다시 연결", url=link_url)])
+    keyboard.append([InlineKeyboardButton("🏠 처음으로", callback_data=CB_NAV_HOME)])
     return InlineKeyboardMarkup(keyboard)
 
 

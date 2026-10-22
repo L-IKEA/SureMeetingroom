@@ -25,7 +25,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def get_default_provider() -> MeetingRoomQueryProvider:
+def get_default_provider(favorite_service: Optional["FavoriteService"] = None) -> MeetingRoomQueryProvider:
     """Instantiate Provider based on TELEGRAM_DATA_MODE environment variable."""
     from meeting_room_bot.auth.session_manager import session_manager
     from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
@@ -36,22 +36,34 @@ def get_default_provider() -> MeetingRoomQueryProvider:
     mode = os.environ.get("TELEGRAM_DATA_MODE", "mock").strip().lower()
     if mode == "real":
         logger.info("[bot] Initializing RealMeetingRoomProvider (TELEGRAM_DATA_MODE=real)")
-        fav_service = FavoriteService(JsonFavoriteRepository())
-        return RealMeetingRoomProvider(session_mgr=session_manager, favorite_service=fav_service)
+        if favorite_service is None:
+            favorite_service = FavoriteService(JsonFavoriteRepository())
+        return RealMeetingRoomProvider(session_mgr=session_manager, favorite_service=favorite_service)
     else:
         logger.info("[bot] Initializing MockMeetingRoomProvider (TELEGRAM_DATA_MODE=mock)")
         return MockMeetingRoomProvider()
 
 
 def build_application(
-    token: str, provider: Optional[MeetingRoomQueryProvider] = None
+    token: str,
+    provider: Optional[MeetingRoomQueryProvider] = None,
+    favorite_service: Optional["FavoriteService"] = None,
 ) -> Application:
     """Build and configure telegram Application instance with handlers."""
     if not token or token == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         raise ValueError("Invalid Telegram Bot Token provided.")
 
+    from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
+    from meeting_room_bot.favorites.service import FavoriteService
+    from meeting_room_bot.telegram.handlers import set_favorite_service
+
+    if favorite_service is None:
+        favorite_service = FavoriteService(JsonFavoriteRepository())
+
+    set_favorite_service(favorite_service)
+
     if provider is None:
-        provider = get_default_provider()
+        provider = get_default_provider(favorite_service=favorite_service)
 
     set_query_provider(provider)
 

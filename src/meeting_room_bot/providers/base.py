@@ -3,7 +3,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
+from meeting_room_bot.models.user_key import UserKey
 
 
 class QueryStatus(str, Enum):
@@ -28,27 +30,36 @@ class QueryResult:
 
 
 class MeetingRoomQueryProvider(ABC):
-    """Abstract Base Class for meeting room data providers (Mock vs Real)."""
+    """Abstract Base Class for meeting room data providers (Mock vs Real).
+
+    Architectural Principle:
+    - Core internal operations are designed around UserKey (Platform-independent Channel Identity).
+    - Union[UserKey, str] is maintained as a temporary Transition Compatibility Layer
+      to support legacy v0.1 data and tests.
+    - Platform adapters (Telegram, Kakao) must explicitly construct UserKey instances
+      (e.g. UserKey("telegram", id), UserKey("kakao", id)) before invoking Core provider methods.
+      Plain str must never be used by new platform adapters to prevent accidental default fallback.
+    """
 
     @abstractmethod
-    def check_authentication(self, user_id: str) -> QueryResult:
-        """Check if user has an active Groupware session."""
+    def check_authentication(self, user_id: Union[UserKey, str]) -> QueryResult:
+        """Check if user has an active Groupware session. Accepts UserKey or legacy str (transition)."""
         pass
 
     @abstractmethod
-    def get_locations(self, user_id: str) -> QueryResult:
+    def get_locations(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Query list of available location assets."""
         pass
 
     @abstractmethod
-    def get_available_rooms_now(self, user_id: str, scope: str = "fav") -> QueryResult:
+    def get_available_rooms_now(self, user_id: Union[UserKey, str], scope: str = "fav") -> QueryResult:
         """Query currently available rooms."""
         pass
 
     @abstractmethod
     def get_available_rooms_at(
         self,
-        user_id: str,
+        user_id: Union[UserKey, str],
         date_str: str,
         start_time: str,
         duration: int,
@@ -58,16 +69,16 @@ class MeetingRoomQueryProvider(ABC):
         pass
 
     @abstractmethod
-    def get_location_status(self, user_id: str, asset_id: int) -> QueryResult:
+    def get_location_status(self, user_id: Union[UserKey, str], asset_id: int) -> QueryResult:
         """Query status of all rooms in a location/asset."""
         pass
 
     @abstractmethod
-    def get_room_detail(self, user_id: str, asset_id: int, room_id: int) -> QueryResult:
+    def get_room_detail(self, user_id: Union[UserKey, str], asset_id: int, room_id: int) -> QueryResult:
         """Query detailed information for a single room."""
         pass
 
     @abstractmethod
-    def get_favorites(self, user_id: str) -> QueryResult:
+    def get_favorites(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Query registered user favorites."""
         pass
