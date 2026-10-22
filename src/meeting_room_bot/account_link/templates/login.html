@@ -118,7 +118,8 @@
             <p>그룹웨어 계정 연결</p>
         </div>
         <div class="card-body">
-            <form method="POST" action="/link/{{ token }}">
+            <form method="POST" action="/link/login">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group">
                     <label for="username">아이디</label>
                     <input type="text" id="username" name="username" placeholder="그룹웨어 아이디 입력" required autocomplete="username" autofocus>

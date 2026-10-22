@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Checkpoint Production Foundation."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.2 Secure Account Linking & Web Session."""
 
 import os
 from pathlib import Path
@@ -10,24 +10,26 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_1_checkpoint"
+HISTORY_SUBDIR = "v0.2_phase2_2_web_session"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_checkpoint_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_web_session_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "79ecbe9506285866480a906c804aca49e2d79d66"
+TASK_BASE_COMMIT = "f03fb7522ff60d08a908a96753476080880c4349"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_checkpoint/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_2_web_session/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
     (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
 
-    # Phase 2.1 Changed Core & Config Files
+    # Phase 2.2 Changed & New Core / Config Files
     ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
+    ("src/meeting_room_bot/account_link/session_store.py", "src/meeting_room_bot/account_link/session_store.py"),
     ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
     ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
     ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
+    ("src/meeting_room_bot/account_link/templates/timeline.html", "src/meeting_room_bot/account_link/templates/timeline.html"),
     ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
     ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
     ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
@@ -37,10 +39,12 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
     ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
     ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
+    ("docs/V0_2_PHASE2_2_WEB_SESSION.md", "docs/V0_2_PHASE2_2_WEB_SESSION.md"),
     ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
     ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
-    # Hardening Test Suite
+    # Test Suite
+    ("tests/test_phase2_2_web_session.py", "tests/test_phase2_2_web_session.py"),
     ("tests/test_phase2_1_foundation.py", "tests/test_phase2_1_foundation.py"),
     ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
     ("tests/test_favorites.py", "tests/test_favorites.py"),
@@ -205,6 +209,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_phase2_2_web_session.py",
             "tests/test_phase2_1_foundation.py",
             "tests/test_dynamic_date_handling.py",
             "tests/test_platform_abstraction.py",
@@ -236,7 +241,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.1 Checkpoint Hardening
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.2 Secure Account Linking & Web Session Foundation
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -245,7 +250,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 - **Task Base Commit**: `{TASK_BASE_COMMIT}`
 - **Current HEAD Commit**: `{head_commit}`
 - **Branch**: `{branch}`
-- **Generated Date**: 2026-10-19
+- **Generated Date**: 2026-10-23
 - **Working Tree**: `CLEAN`
 - **Patch Range**: `{TASK_BASE_COMMIT}..{head_commit}`
 - **Cumulative Range**: `{RELEASE_BASE_TAG}..{head_commit}`
@@ -253,83 +258,61 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.1 Final Checkpoint Hardening** prior to any GitHub push or external Cloud/HTTPS provisioning.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.2: Secure Account Linking & Web Session Foundation** prior to any GitHub push or external Cloud/HTTPS provisioning.
 
-No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed.
+No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed. Actual Timeline UI grid is deferred to Phase 2.3.
 
 ### Included Patch Criteria:
-- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing all changes implemented in Phase 2.1 (excluding recursive review bundles).
+- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing all changes implemented in Phase 2.2 (excluding recursive review bundles).
 - **`CUMULATIVE_GIT_DIFF.patch`**: Cumulative patch from Release Base Tag (`{RELEASE_BASE_TAG}`..`{head_short}`) provided for complete full-lineage reference.
 
 ---
 
-## 3. Key Hardening Implementations
+## 3. Key Phase 2.2 Implementations
 
-### 1) Login Failure UX & Burn-on-use Policy Consistency
-- Maintained strict burn-on-use security token consumption (`token_service.consume_token(token)`) before attempting authentication.
-- Removed legacy `javascript:history.back()` ("🔄 다시 시도") retry button in `error.html` because consumed one-time tokens cannot be reused.
-- Directs user with explicit guidance: "보안을 위해 연결 링크는 1회만 사용 가능합니다. Telegram으로 돌아가 '회사 계정 연결'을 다시 눌러 새로운 연결 링크를 발급받아 주세요."
-- Zero token creation in web layer; tokens remain exclusively issued by Telegram Handlers.
+### 1) One-Time Token Exchange & 303 Redirect URL Token Clearance
+- In `account_link/app.py`: `GET /link/{{token}}` immediately consumes one-time security token (burn-on-use).
+- Generates pre-authentication `LinkSession` (with `session_id`, `user_key`, `csrf_token`, 300s TTL).
+- Issues `meetingroom_link_session` cookie (HttpOnly, SameSite=Lax, Path=/link) and returns `303 See Other` to `/link/login`.
+- One-time token disappears from browser URL immediately after the initial GET and never appears in POST URL.
 
-### 2) Empty Favorites File Treated as Storage Corruption
-- Updated `JsonFavoriteRepository._load_raw_data()`:
-  - Non-existent file: returns normal new state `{{"users": {{}}}}`.
-  - Existing file with 0 bytes or whitespace-only: raises `FavoriteStorageCorruptionError`, logs ERROR alert, creates timestamped `.corrupted.<timestamp>` backup, and strictly blocks overwriting with new/empty data.
-  - Read and mutation operations both abort on corrupted file without silent data loss.
+### 2) CSRF Protection on Login Form
+- `GET /link/login` injects cryptographic CSRF token (`secrets.token_hex(32)`) into hidden input field.
+- `POST /link/login` validates CSRF token using constant-time comparison (`secrets.compare_digest`).
+- Invalid/missing CSRF immediately returns **HTTP 403 Forbidden** and aborts without invoking Groupware login.
 
-### 3) Presentation Layer Zero Security Token Guarantee
-- Completely removed legacy fallback in `keyboards.py`. Presentation layer never imports `token_service` and has **0 `create_token` calls**.
-- Keyboards accept exclusively `Optional[str] link_url`:
-  - `link_url=None` (or localhost): No URL button.
-  - `link_url="https://..."`: Renders `InlineKeyboardButton("🔐 회사 계정 연결", url=link_url)`.
-- Token creation is strictly restricted to Handler / AccountLink orchestration.
+### 3) Separation of LinkSession and WebSession
+- `LinkSession`: Pre-authentication temporary state (300s TTL, Path=/link, holds CSRF token). Consumed and deleted immediately upon login attempt.
+- `WebSession`: Post-authentication session (86400s TTL, Path=/, `meetingroom_web_session` cookie).
+- UserKey is never stored in browser cookies; cookies contain only opaque cryptographically random IDs.
+- Passwords and tokens are never stored in session stores or logs.
 
-### 4) Direct X-Forwarded-For Header Trust Elimination
-- In `account_link/app.py`: eliminated naive direct reading of raw `X-Forwarded-For` request header.
-- Client IP resolution relies exclusively on `request.client.host`.
-- Reverse proxy header rewriting is delegated to Uvicorn's `ProxyHeadersMiddleware`, securely configured with `forwarded_allow_ips=config.forwarded_allow_ips` in `scripts/run_local_app.py` (and production runner).
-- Client-spoofed `X-Forwarded-For` headers cannot evade rate limiting.
-- Production default remains strict `127.0.0.1` (never `*`).
+### 4) Protected /timeline Placeholder & Dual Validation
+- `GET /timeline` validates both:
+  1. Valid `WebSession` from cookie.
+  2. Active authenticated `GroupwareClient` session in core `UserSessionManager`.
+- If server restarted or Groupware session lost, `WebSession` is revoked, cookie deleted, and 401 returned.
+- If both active, renders clean placeholder ("회의실 시간표", "계정 연결이 완료되었습니다.", "Timeline UI는 다음 단계에서 제공됩니다.").
 
-### 5) Rate Limit Store Automatic Cleanup & Capacity Defense
-- Sliding-window IP table (`_login_attempts_by_ip`) in `app.py` includes automatic cleanup:
-  - Purges stale IP entries older than 60 seconds whenever table exceeds 100 entries.
-  - Enforces `MAX_RATE_LIMIT_ENTRIES = 10000`, pruning oldest 20% entries under spoofing flood attacks.
-  - Explicit `cleanup_rate_limits(max_age_seconds=60.0)` helper function for testing and periodic maintenance.
+### 5) Secure Logout Endpoint (POST /logout)
+- Destructive logout restricted to POST method.
+- Revokes `WebSession` in store, removes Groupware session in `UserSessionManager`, and clears cookie.
 
-### 6) Atomic Write Preserved
-- `JsonFavoriteRepository` continues to use `threading.RLock()`, writing to unique temp files (`favorites.json.tmp.<pid>.<uuid>`), flushing, enforcing `os.fsync`, and atomically replacing via `os.replace`.
+### 6) Cookie Security & Configuration
+- Cookie `Secure` attribute dynamically controlled via `account_link_base_url.startswith("https://")`:
+  - Local HTTP (`http://localhost:8000`): `Secure=False`
+  - Production HTTPS: `Secure=True`
+- Configurable TTLs: `ACCOUNT_LINK_WEB_SESSION_TTL_SECONDS=300`, `WEB_SESSION_TTL_SECONDS=86400`.
 
 ### 7) Single-Process Pilot Constraint Maintained
-- `docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md` explicitly documents:
-  - **Server Instance = 1**
-  - **Python Process = 1**
-  - **Uvicorn Worker = 1** (`--workers 1`)
-- Multi-worker and multi-instance prohibited until Shared Stores are implemented.
-
-### 8) Blocking Groupware I/O Isolation (`asyncio.to_thread`)
-- All blocking network I/O in `GroupwareClient` remains isolated from asyncio event loop using `await asyncio.to_thread(...)`.
-
-### 9) Production Configuration Actual Wiring
-- `src/meeting_room_bot/config.py` connected across:
-  - `ACCOUNT_LINK_TOKEN_TTL` -> `token_service.py`
-  - `FORWARDED_ALLOW_IPS` -> Uvicorn runner (`run_local_app.py`)
-  - `RATE_LIMIT_LOGIN_PER_MINUTE` -> `app.py`
-  - `GROUPWARE_BASE_URL` -> `groupware/client.py`
-  - `FAVORITES_FILE_PATH` -> `favorites/json_repository.py`
-
-### 10) URL Token Exposure Mitigation
-- Security response headers implemented in `app.py` (`Referrer-Policy: no-referrer`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`).
-- Documented clear status distinction:
-  - **Security Response Headers**: Implemented in Phase 2.1
-  - **Secure Cookie Exchange + 303 Redirect (`/link/<token>` -> `/link/login`)**: Planned Architecture in Phase 2.2
+- Single server instance, single Python process, single Uvicorn worker (`--workers 1`).
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Phase 2.1 Start)**: 192 passed.
-- **Enhanced Test Suite**: 219 passed, 0 failed, 0 skipped.
-- **Execution Time**: ~3.4s.
+- **Baseline Tests (Phase 2.1 Final)**: 219 passed.
+- **Enhanced Test Suite**: 235 passed, 0 failed, 0 skipped.
+- **Execution Time**: ~4.1s.
 
 ---
 
