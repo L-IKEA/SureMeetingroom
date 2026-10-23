@@ -10,15 +10,15 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_2_hardening"
+HISTORY_SUBDIR = "v0.2_phase2_2_final"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_hardening_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_final_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "2a13a7c9476db39fd3fa27a71888da46ba0d5eb7"
+TASK_BASE_COMMIT = "c13b194d8a7a7660287a46d9a97f001e3c8fa759"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_2_web_session/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_2_final/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
     (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
@@ -241,7 +241,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.2 Hardening (Legacy Route Removal & Replay Defense)
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.2 Final Hardening (Log Hygiene & Architecture Alignment)
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -258,51 +258,71 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.2 Hardening: Secure Account Linking & Web Session Foundation** prior to any GitHub push or external Cloud/HTTPS provisioning.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.2 Final Hardening: Secure Account Linking & Web Session Foundation** prior to any GitHub push or external Cloud/HTTPS provisioning.
 
 No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed. Actual Timeline UI grid is deferred to Phase 2.3.
 
 ### Included Patch Criteria:
-- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing all hardening changes implemented in Phase 2.2 (excluding recursive review bundles).
+- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing final hardening changes implemented in Phase 2.2 (excluding recursive review bundles).
 - **`CUMULATIVE_GIT_DIFF.patch`**: Cumulative patch from Release Base Tag (`{RELEASE_BASE_TAG}`..`{head_short}`) provided for complete full-lineage reference.
 
 ---
 
-## 3. Key Hardening Implementations
+## 3. Key Final Hardening Implementations
 
-### 1) Legacy `POST /link/{{token}}` Endpoint Complete Removal
-- In `account_link/app.py`: Completely removed `@app.post("/link/{{token}}")` and `process_legacy_token_login`.
-- Direct `POST /link/{{token}}` requests are rejected with **HTTP 405 Method Not Allowed** and trigger **0 calls** to `GroupwareClient.login`.
-- All unit and integration tests previously calling `POST /link/{{token}}` were migrated to the official Phase 2.2 flow (`GET /link/{{token}}` -> `GET /link/login` -> `POST /link/login`).
+### 1) LinkSession ID Raw Log Exposure Elimination
+- In `src/meeting_room_bot/account_link/app.py`:
+  - Removed raw `link_session_id` string from concurrent replay warning log.
+  - Replaced with a non-sensitive message: `logger.warning("[account_link] Concurrent replay or already consumed link session detected.")`.
+  - Maintained zero raw logging policy for all sensitive identifiers:
+    - `password`
+    - `one-time account link token`
+    - `LinkSession ID`
+    - `WebSession ID`
 
-### 2) LinkSession Concurrent Replay Prevention
-- In `POST /link/login`:
-  1. Retrieve `link_session_id` from cookie and lookup `LinkSession`.
-  2. Verify CSRF token using `secrets.compare_digest` (before consume to prevent session burning on forged CSRF).
-  3. Verify client IP Rate Limit (before consume to prevent session burning on rate limit).
-  4. Atomically execute `link_session_store.consume_link_session(link_session_id)` before invoking `GroupwareClient.login`.
-  5. If atomic consume returns `None`, request is immediately rejected with **HTTP 400** and cookie is cleared.
-  6. Only the single winning request proceeds to external `GroupwareClient.login`.
-- Verified with concurrent thread replay test: exactly 1 request succeeds (303 -> `/timeline`), 1 request rejected (400), `GroupwareClient.login` call count is strictly 1, and exactly 1 `WebSession` created.
+### 2) Concurrent Replay Log Hygiene Test Augmentation
+- In `tests/test_phase2_2_web_session.py`:
+  - Added `test_concurrent_replay_log_hygiene_no_session_leakage(self, caplog)`.
+  - Uses thread synchronization barrier at rate-limiting pre-check to guarantee both requests hit concurrent LinkSession consumption window:
+    - Winner request: returns HTTP 303 -> `/timeline` + creates `WebSession`
+    - Replay request: returns HTTP 400 rejection + clears `LinkSession` cookie
+  - Directly tests application logs (`meeting_room_bot.*` records) to assert:
+    - `password not in logs`
+    - `one-time token not in logs`
+    - `LinkSession ID not in logs`
+    - `WebSession ID not in logs`
 
-### 3) Credential & Token Log Hygiene Audit
-- Verified with pytest `caplog` test that sensitive credentials and tokens:
-  - Plain test passwords (`VERY_CONFIDENTIAL_PASS_12345!`)
-  - One-time security tokens
-  - `LinkSession` IDs
-  - `WebSession` IDs
-  never leak or appear in application logs (`meeting_room_bot.*`).
+### 3) Architecture Documentation Alignment
+- In `docs/V0_2_ARCHITECTURE_PLAN.md`:
+  - Removed legacy `GET/POST /link/{{token}}` description in Section 1.1 and aligned with Phase 2.2:
+    - `GET /link/{{token}}` -> one-time token consume -> `LinkSession` -> `303 /link/login`
+    - `GET /link/login` -> CSRF login form
+    - `POST /link/login` -> Groupware login -> `WebSession` -> `/timeline`
+    - `GET /timeline` -> protected room timeline view
+    - `POST /link/logout` -> WebSession termination
+  - Aligned Section 6.1 sequence diagram and Section 6.2 security specifications.
+  - Verified no active documentation in the repository claims `POST /link/{{token}}` is currently supported.
 
-### 4) Deployment Documentation Alignment
-- Updated `docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md` and `docs/V0_2_PHASE2_2_WEB_SESSION.md` to remove old `POST /link/{{token}}` descriptions and reflect the unified Phase 2.2 architecture.
+### 4) Regression Prevention & Hardening Integrity
+All previous Phase 2.2 hardening behaviors strictly preserved:
+- Direct `POST /link/{{token}}` -> 405 Method Not Allowed (`GroupwareClient.login` call count = 0)
+- Concurrent replay -> `GroupwareClient.login` called exactly 1 time
+- Successful login -> 303 `/timeline`
+- Replay login -> 400 rejection
+- CSRF validation and constant-time check (`secrets.compare_digest`)
+- LinkSession / WebSession cookie path isolation
+- `/timeline` authentication and orphan session cleanup
+- `/link/logout` session termination
+- Telegram bot full feature set preserved
+- Local Account Linking preserved
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Phase 2.2 Initial)**: 235 passed.
-- **Enhanced Test Suite**: 238 passed, 0 failed, 0 skipped.
-- **New Tests Added**: 3 comprehensive tests (Legacy 405 rejection with 0 Groupware calls, concurrent replay single-winner, and application log audit).
-- **Execution Time**: ~4.4s.
+- **Baseline Tests (Phase 2.2 Hardening)**: 238 passed.
+- **Enhanced Test Suite**: 239 passed, 0 failed, 0 skipped.
+- **New Tests Added**: `test_concurrent_replay_log_hygiene_no_session_leakage`
+- **Execution Time**: ~4.5s.
 
 ---
 

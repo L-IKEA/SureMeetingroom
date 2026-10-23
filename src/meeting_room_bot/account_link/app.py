@@ -166,7 +166,7 @@ def create_app() -> FastAPI:
         # Guarantees that only a single concurrent request acquires session ownership.
         consumed_session = link_session_store.consume_link_session(link_session_id)
         if not consumed_session:
-            logger.warning(f"[account_link] Concurrent replay or already consumed link session: {link_session_id}")
+            logger.warning("[account_link] Concurrent replay or already consumed link session detected.")
             html = render_html("error.html", {"message": "이미 사용되었거나 처리 중인 요청입니다. 다시 시도해주세요."})
             response = HTMLResponse(content=html, status_code=400)
             response.delete_cookie(key=config.link_session_cookie_name, path="/link")

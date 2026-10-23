@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 import os
 import re
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -333,6 +334,76 @@ class TestLoginExecutionAndWebSession:
         assert secret_token not in app_log_text, "One-time token leaked into application logs!"
         assert link_cookie not in app_log_text, "LinkSession ID leaked into application logs!"
         assert web_cookie not in app_log_text, "WebSession ID leaked into application logs!"
+
+    def test_concurrent_replay_log_hygiene_no_session_leakage(self, caplog):
+        """Verify LinkSession ID, WebSession ID, one-time token, and password never leak into logs during concurrent replay."""
+        caplog.set_level(logging.DEBUG)
+
+        client = TestClient(app)
+        user_key = UserKey("telegram", "audit_conc_user")
+        link_token = token_service.create_token(user_key)
+        auth_credential_pass = "REPLAY_SEC_PASS_9988!"
+
+        # 1. Token Exchange
+        resp_get = client.get(f"/link/{link_token}", follow_redirects=False)
+        assert resp_get.status_code == 303
+        link_cookie = resp_get.cookies.get(LINK_SESSION_COOKIE_NAME)
+        assert link_cookie is not None
+
+        # 2. Form view to obtain CSRF token
+        resp_form = client.get("/link/login", cookies={LINK_SESSION_COOKIE_NAME: link_cookie})
+        csrf_match = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text)
+        assert csrf_match is not None
+        csrf = csrf_match.group(1)
+
+        def mock_login_delayed(self, username, password):
+            time.sleep(0.05)
+            self._is_authenticated = True
+            return True
+
+        def submit_login():
+            c = TestClient(app)
+            return c.post(
+                "/link/login",
+                data={"username": "audit_conc_user", "password": auth_credential_pass, "csrf_token": csrf},
+                cookies={LINK_SESSION_COOKIE_NAME: link_cookie},
+                follow_redirects=False,
+            )
+
+        barrier = threading.Barrier(2)
+        def sync_rate_limit(ip, limit):
+            try:
+                barrier.wait(timeout=2)
+            except threading.BrokenBarrierError:
+                pass
+            return True
+
+        with patch("meeting_room_bot.account_link.app.check_ip_rate_limit", side_effect=sync_rate_limit):
+            with patch.object(GroupwareClient, "login", side_effect=mock_login_delayed, autospec=True):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                    f1 = executor.submit(submit_login)
+                    f2 = executor.submit(submit_login)
+                    res1 = f1.result()
+                    res2 = f2.result()
+
+        status_codes = sorted([res1.status_code, res2.status_code])
+        assert status_codes == [303, 400], f"Expected [303, 400] but got {status_codes}"
+
+        success_res = res1 if res1.status_code == 303 else res2
+        web_cookie = success_res.cookies.get(WEB_SESSION_COOKIE_NAME)
+        assert web_cookie is not None
+
+        # Verify application logs from meeting_room_bot package
+        app_log_text = "\n".join(
+            record.getMessage()
+            for record in caplog.records
+            if record.name.startswith("meeting_room_bot")
+        )
+
+        assert auth_credential_pass not in app_log_text, "Password leaked into application logs during concurrent replay!"
+        assert link_token not in app_log_text, "One-time token leaked into application logs during concurrent replay!"
+        assert link_cookie not in app_log_text, "LinkSession ID leaked into application logs during concurrent replay!"
+        assert web_cookie not in app_log_text, "WebSession ID leaked into application logs during concurrent replay!"
 
 
 class TestProtectedTimelineEndpoint:
