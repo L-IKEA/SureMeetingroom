@@ -80,9 +80,15 @@ v0.1-local-mvp는 로컬 단일 인스턴스 환경에서 Telegram Bot 및 Group
    - `states.py`: 사용자의 대화 탐색 위치(`last_menu`, `date`, `time`, `scope`, `asset_id` 등)를 보관하는 인메모리 `UserStateManager`.
    - `mock_service.py`: `providers/mock_data.py`의 목 데이터를 텔레그램 패키지에서 하위 호환 re-export.
 2. **Account Linking 레이어 (`src/meeting_room_bot/account_link/`)**:
-   - `app.py`: FastAPI 기반 웹 서버 (`GET/POST /link/{token}`).
+   - `app.py`: FastAPI 기반 웹 서버. 안전한 웹 세션 기반 계정 연동 및 타임라인 웹 뷰 엔드포인트 제공:
+     - `GET /link/{token}`: One-Time Token 검증 및 소각 (`consume_token`), `LinkSession` 생성 및 쿠키 발급, `303 See Other` -> `/link/login` 리다이렉트
+     - `GET /link/login`: `LinkSession` 검증 및 암호학적 CSRF 토큰이 주입된 로그인 폼(`login.html`) 렌더링
+     - `POST /link/login`: CSRF 토큰 검증, IP Rate Limit 확인, `LinkSession` 원자적 소각, Groupware 비동기 로그인 (`asyncio.to_thread`), `WebSession` 생성 및 쿠키 발급, `303 See Other` -> `/timeline`
+     - `GET /timeline`: `WebSession` 검증 기반 인가 보호된 타임라인 뷰 (`timeline.html`)
+     - `POST /logout`: `WebSession` 파기 및 세션 정리
+   - `session_store.py`: `LinkSessionStore` 및 `WebSessionStore` 인메모리 관리 (`Single-process pilot`).
    - `token_service.py`: 1회성 토큰 발급/검증/소각 인메모리 서비스 (`default_ttl=600s`).
-   - `templates/`: 순수 HTML/CSS 폼 (`login.html`, `success.html`, `error.html`).
+   - `templates/`: 순수 HTML/CSS 폼 및 뷰 (`login.html`, `timeline.html`, `success.html`, `error.html`).
 3. **Core Services & Models (`src/meeting_room_bot/{services, models, favorites, auth}/`)**:
    - `models/`: `Asset`, `Room`, `Reservation`, `UserFavorites`, `UserSessionInfo`, `UserKey` 등 도메인 모델.
    - `services/`: `MeetingRoomService`, `RoomStatusService`, `AvailabilityService` (Asia/Seoul 기준 완벽 격리).
@@ -273,30 +279,39 @@ class UserKey:
      │◄──────────────────────────┤                         │                           │
      │    https://meet.corp.com/link/{token}               │                           │
      │                                                     │                           │
-     │ 4. 모바일 인앱 브라우저로 접속 (GET)                 │                           │
+     │ 4. 모바일 인앱 브라우저로 접속 (GET /link/{token})   │                           │
      ├────────────────────────────────────────────────────►│                           │
-     │                                                     │ 5. 토큰 유효성 검증       │
-     │ 6. 로그인 웹 폼 표시 (HTML)                         │                           │
+     │                                                     │ 5. 토큰 즉시 검증 및 소각 │
+     │                                                     │    LinkSession 생성       │
+     │ 6. 303 See Other Redirect -> /link/login            │                           │
      │◄────────────────────────────────────────────────────┤                           │
      │                                                     │                           │
-     │ 7. ID / PW 제출 (POST)                              │                           │
+     │ 7. GET /link/login (LinkSession Cookie 기반)        │                           │
      ├────────────────────────────────────────────────────►│                           │
-     │                                                     │ 8. 토큰 즉시 소각 (Burn)  │
-     │                                                     │ 9. 그룹웨어 로그인 시도   │
+     │                                                     │ 8. CSRF 토큰 주입         │
+     │ 9. 로그인 웹 폼 표시 (HTML)                         │                           │
+     │◄────────────────────────────────────────────────────┤                           │
+     │                                                     │                           │
+     │ 10. ID / PW + CSRF 제출 (POST /link/login)          │                           │
+     ├────────────────────────────────────────────────────►│                           │
+     │                                                     │ 11. CSRF 검증             │
+     │                                                     │ 12. LinkSession 원자적소각│
+     │                                                     │ 13. 그룹웨어 비동기로그인 │
      │                                                     ├──────────────────────────►│
      │                                                     │◄──────────────────────────┤
-     │                                                     │    200 OK + Set-Cookie    │
+     │                                                     │     200 OK + Set-Cookie   │
      │                                                     │                           │
-     │                                                     │ 10. 세션 등록             │
-     │                                                     │     UserKey ↔ Session     │
-     │ 11. "연동 성공! 봇으로 복귀" 화면                   │                           │
+     │                                                     │ 14. 세션 등록             │
+     │                                                     │     UserKey ↔ GW Session  │
+     │                                                     │     WebSession 생성       │
+     │ 15. 303 See Other Redirect -> /timeline             │                           │
      │◄────────────────────────────────────────────────────┤                           │
      │                                                     │                           │
-     │ 12. 메신저로 복귀 후 회의실 조회 클릭                │                           │
+     │ 16. 메신저로 복귀 후 회의실 조회 클릭               │                           │
      ├──────────────────────────►│                         │                           │
-     │                           │ 13. 인증 세션 확인      │                           │
+     │                           │ 17. 인증 세션 확인      │                           │
      │                           │     정상 조회 완료      │                           │
-     │ 14. 회의실 목록 응답      │                         │                           │
+     │ 18. 회의실 목록 응답      │                         │                           │
      │◄──────────────────────────┤                         │                           │
 ```
 
@@ -304,10 +319,15 @@ class UserKey:
 1. **공인 HTTPS 엔드포인트**:
    - `https://<public-domain>/link/{token}`
    - Telegram의 경우 `InlineKeyboardButton(text="🔐 계정 연결하기", url=link_url)`로 직접 버튼 렌더링.
-2. **One-Time Token 보안 강화**:
+2. **One-Time Token & Web Session 보안 강화**:
    - 엔트로피: `secrets.token_urlsafe(32)` 유지 (256비트 난수).
    - TTL: 5분(300초) 만료 원칙.
-   - 1회 사용 즉시 소각(Burn-on-use): 성공/실패 여부와 무관하게 POST 처리 시작 시 토큰을 소각하여 Replay 공격 차단.
+   - 1회 사용 즉시 소각(Burn-on-use): `GET /link/{token}` 수신 시 토큰을 즉시 소각(`consume_token`)하여 브라우저 히스토리/프록시 로그 노출 원천 차단.
+   - 2단계 세션 분리:
+     - `LinkSession`: 일회용 토큰 교환 후 로그인 폼 입력 동안만 유효 (`Path=/link`, 짧은 TTL, 단일 용도).
+     - `WebSession`: 그룹웨어 인증 성공 후 발급되어 웹 UI 타임라인 접근 인가 (`Path=/`, 세션 라이프사이클 관리).
+   - LinkSession 원자적 소비: `POST /link/login` 수신 시 `LinkSession`을 원자적으로 소각하여 동시 다중 제출(Concurrent Replay) 차단.
+   - 암호학적 CSRF 방어: `GET /link/login` 시 난수 CSRF 토큰을 주입하고, `POST /link/login` 시 `secrets.compare_digest`로 상수 시간 검증.
 3. **프로그램 재시작 시 세션 처리 전략 (선택 사항)**:
    - **옵션 A (보안 기본형 / 인메모리 유지)**:
      - 디스크에 쿠키를 일절 영속화하지 않음. 서버 재배포/재시작 시 사용자에게 "서버 점검으로 인한 재연결 필요" 안내.

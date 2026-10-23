@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.1 Checkpoint Production Foundation."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.2 Secure Account Linking & Web Session."""
 
 import os
 from pathlib import Path
@@ -10,24 +10,26 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_1_checkpoint"
+HISTORY_SUBDIR = "v0.2_phase2_2_final"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_1_checkpoint_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_final_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "79ecbe9506285866480a906c804aca49e2d79d66"
+TASK_BASE_COMMIT = "cd641ba376df827497a0ab367a60f23721f7ba0d"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_1_checkpoint/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_2_final/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
     (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
 
-    # Phase 2.1 Changed Core & Config Files
+    # Phase 2.2 Changed & New Core / Config Files
     ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
+    ("src/meeting_room_bot/account_link/session_store.py", "src/meeting_room_bot/account_link/session_store.py"),
     ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
     ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
     ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
+    ("src/meeting_room_bot/account_link/templates/timeline.html", "src/meeting_room_bot/account_link/templates/timeline.html"),
     ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
     ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
     ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
@@ -37,10 +39,12 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
     ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
     ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
+    ("docs/V0_2_PHASE2_2_WEB_SESSION.md", "docs/V0_2_PHASE2_2_WEB_SESSION.md"),
     ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
     ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
-    # Hardening Test Suite
+    # Test Suite
+    ("tests/test_phase2_2_web_session.py", "tests/test_phase2_2_web_session.py"),
     ("tests/test_phase2_1_foundation.py", "tests/test_phase2_1_foundation.py"),
     ("tests/test_account_link_localhost.py", "tests/test_account_link_localhost.py"),
     ("tests/test_favorites.py", "tests/test_favorites.py"),
@@ -205,6 +209,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_phase2_2_web_session.py",
             "tests/test_phase2_1_foundation.py",
             "tests/test_dynamic_date_handling.py",
             "tests/test_platform_abstraction.py",
@@ -236,7 +241,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.1 Checkpoint Hardening
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.2 Final Hardening (Log Hygiene & Architecture Alignment)
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -245,7 +250,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 - **Task Base Commit**: `{TASK_BASE_COMMIT}`
 - **Current HEAD Commit**: `{head_commit}`
 - **Branch**: `{branch}`
-- **Generated Date**: 2026-10-19
+- **Generated Date**: 2026-10-23
 - **Working Tree**: `CLEAN`
 - **Patch Range**: `{TASK_BASE_COMMIT}..{head_commit}`
 - **Cumulative Range**: `{RELEASE_BASE_TAG}..{head_commit}`
@@ -253,83 +258,71 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.1 Final Checkpoint Hardening** prior to any GitHub push or external Cloud/HTTPS provisioning.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.2 Final Hardening: Secure Account Linking & Web Session Foundation** prior to any GitHub push or external Cloud/HTTPS provisioning.
 
-No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed.
+No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed. Actual Timeline UI grid is deferred to Phase 2.3.
 
 ### Included Patch Criteria:
-- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing all changes implemented in Phase 2.1 (excluding recursive review bundles).
+- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing final hardening changes implemented in Phase 2.2 (excluding recursive review bundles).
 - **`CUMULATIVE_GIT_DIFF.patch`**: Cumulative patch from Release Base Tag (`{RELEASE_BASE_TAG}`..`{head_short}`) provided for complete full-lineage reference.
 
 ---
 
-## 3. Key Hardening Implementations
+## 3. Key Final Hardening Implementations
 
-### 1) Login Failure UX & Burn-on-use Policy Consistency
-- Maintained strict burn-on-use security token consumption (`token_service.consume_token(token)`) before attempting authentication.
-- Removed legacy `javascript:history.back()` ("🔄 다시 시도") retry button in `error.html` because consumed one-time tokens cannot be reused.
-- Directs user with explicit guidance: "보안을 위해 연결 링크는 1회만 사용 가능합니다. Telegram으로 돌아가 '회사 계정 연결'을 다시 눌러 새로운 연결 링크를 발급받아 주세요."
-- Zero token creation in web layer; tokens remain exclusively issued by Telegram Handlers.
+### 1) LinkSession ID Raw Log Exposure Elimination
+- In `src/meeting_room_bot/account_link/app.py`:
+  - Removed raw `link_session_id` string from concurrent replay warning log.
+  - Replaced with a non-sensitive message: `logger.warning("[account_link] Concurrent replay or already consumed link session detected.")`.
+  - Maintained zero raw logging policy for all sensitive identifiers:
+    - `password`
+    - `one-time account link token`
+    - `LinkSession ID`
+    - `WebSession ID`
 
-### 2) Empty Favorites File Treated as Storage Corruption
-- Updated `JsonFavoriteRepository._load_raw_data()`:
-  - Non-existent file: returns normal new state `{{"users": {{}}}}`.
-  - Existing file with 0 bytes or whitespace-only: raises `FavoriteStorageCorruptionError`, logs ERROR alert, creates timestamped `.corrupted.<timestamp>` backup, and strictly blocks overwriting with new/empty data.
-  - Read and mutation operations both abort on corrupted file without silent data loss.
+### 2) Concurrent Replay Log Hygiene Test Augmentation
+- In `tests/test_phase2_2_web_session.py`:
+  - Added `test_concurrent_replay_log_hygiene_no_session_leakage(self, caplog)`.
+  - Uses thread synchronization barrier at rate-limiting pre-check to guarantee both requests hit concurrent LinkSession consumption window:
+    - Winner request: returns HTTP 303 -> `/timeline` + creates `WebSession`
+    - Replay request: returns HTTP 400 rejection + clears `LinkSession` cookie
+  - Directly tests application logs (`meeting_room_bot.*` records) to assert:
+    - `password not in logs`
+    - `one-time token not in logs`
+    - `LinkSession ID not in logs`
+    - `WebSession ID not in logs`
 
-### 3) Presentation Layer Zero Security Token Guarantee
-- Completely removed legacy fallback in `keyboards.py`. Presentation layer never imports `token_service` and has **0 `create_token` calls**.
-- Keyboards accept exclusively `Optional[str] link_url`:
-  - `link_url=None` (or localhost): No URL button.
-  - `link_url="https://..."`: Renders `InlineKeyboardButton("🔐 회사 계정 연결", url=link_url)`.
-- Token creation is strictly restricted to Handler / AccountLink orchestration.
+### 3) Architecture Documentation Alignment
+- In `docs/V0_2_ARCHITECTURE_PLAN.md`:
+  - Removed legacy `GET/POST /link/{{token}}` description in Section 1.1 and aligned with Phase 2.2:
+    - `GET /link/{{token}}` -> one-time token consume -> `LinkSession` -> `303 /link/login`
+    - `GET /link/login` -> CSRF login form
+    - `POST /link/login` -> Groupware login -> `WebSession` -> `/timeline`
+    - `GET /timeline` -> protected room timeline view
+    - `POST /logout` -> WebSession termination
+  - Aligned Section 6.1 sequence diagram and Section 6.2 security specifications.
+  - Verified no active documentation in the repository claims `POST /link/{{token}}` is currently supported.
 
-### 4) Direct X-Forwarded-For Header Trust Elimination
-- In `account_link/app.py`: eliminated naive direct reading of raw `X-Forwarded-For` request header.
-- Client IP resolution relies exclusively on `request.client.host`.
-- Reverse proxy header rewriting is delegated to Uvicorn's `ProxyHeadersMiddleware`, securely configured with `forwarded_allow_ips=config.forwarded_allow_ips` in `scripts/run_local_app.py` (and production runner).
-- Client-spoofed `X-Forwarded-For` headers cannot evade rate limiting.
-- Production default remains strict `127.0.0.1` (never `*`).
-
-### 5) Rate Limit Store Automatic Cleanup & Capacity Defense
-- Sliding-window IP table (`_login_attempts_by_ip`) in `app.py` includes automatic cleanup:
-  - Purges stale IP entries older than 60 seconds whenever table exceeds 100 entries.
-  - Enforces `MAX_RATE_LIMIT_ENTRIES = 10000`, pruning oldest 20% entries under spoofing flood attacks.
-  - Explicit `cleanup_rate_limits(max_age_seconds=60.0)` helper function for testing and periodic maintenance.
-
-### 6) Atomic Write Preserved
-- `JsonFavoriteRepository` continues to use `threading.RLock()`, writing to unique temp files (`favorites.json.tmp.<pid>.<uuid>`), flushing, enforcing `os.fsync`, and atomically replacing via `os.replace`.
-
-### 7) Single-Process Pilot Constraint Maintained
-- `docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md` explicitly documents:
-  - **Server Instance = 1**
-  - **Python Process = 1**
-  - **Uvicorn Worker = 1** (`--workers 1`)
-- Multi-worker and multi-instance prohibited until Shared Stores are implemented.
-
-### 8) Blocking Groupware I/O Isolation (`asyncio.to_thread`)
-- All blocking network I/O in `GroupwareClient` remains isolated from asyncio event loop using `await asyncio.to_thread(...)`.
-
-### 9) Production Configuration Actual Wiring
-- `src/meeting_room_bot/config.py` connected across:
-  - `ACCOUNT_LINK_TOKEN_TTL` -> `token_service.py`
-  - `FORWARDED_ALLOW_IPS` -> Uvicorn runner (`run_local_app.py`)
-  - `RATE_LIMIT_LOGIN_PER_MINUTE` -> `app.py`
-  - `GROUPWARE_BASE_URL` -> `groupware/client.py`
-  - `FAVORITES_FILE_PATH` -> `favorites/json_repository.py`
-
-### 10) URL Token Exposure Mitigation
-- Security response headers implemented in `app.py` (`Referrer-Policy: no-referrer`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`).
-- Documented clear status distinction:
-  - **Security Response Headers**: Implemented in Phase 2.1
-  - **Secure Cookie Exchange + 303 Redirect (`/link/<token>` -> `/link/login`)**: Planned Architecture in Phase 2.2
+### 4) Regression Prevention & Hardening Integrity
+All previous Phase 2.2 hardening behaviors strictly preserved:
+- Direct `POST /link/{{token}}` -> 405 Method Not Allowed (`GroupwareClient.login` call count = 0)
+- Concurrent replay -> `GroupwareClient.login` called exactly 1 time
+- Successful login -> 303 `/timeline`
+- Replay login -> 400 rejection
+- CSRF validation and constant-time check (`secrets.compare_digest`)
+- LinkSession / WebSession cookie path isolation
+- `/timeline` authentication and orphan session cleanup
+- `/logout` session termination
+- Telegram bot full feature set preserved
+- Local Account Linking preserved
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Phase 2.1 Start)**: 192 passed.
-- **Enhanced Test Suite**: 219 passed, 0 failed, 0 skipped.
-- **Execution Time**: ~3.4s.
+- **Baseline Tests (Phase 2.2 Hardening)**: 238 passed.
+- **Enhanced Test Suite**: 239 passed, 0 failed, 0 skipped.
+- **New Tests Added**: `test_concurrent_replay_log_hygiene_no_session_leakage`
+- **Execution Time**: ~4.5s.
 
 ---
 

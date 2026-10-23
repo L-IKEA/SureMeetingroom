@@ -101,7 +101,7 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
 ## 4. HTTPS Architecture & Account Linking Target Flow
 
 ### 4.1 HTTPS 전환 목표 구조
-- **기존 (로컬)**: `http://localhost:8000/link/<token>` (터미널 복사 방식)
+- **기존 (로컬)**: `http://localhost:8000/link/<token>`
 - **운영 (HTTPS)**: `https://<approved-domain>/link/<token>` (텔레그램 인라인 버튼 클릭 방식)
 
 ```text
@@ -124,21 +124,27 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
          | 3. HTTP Proxy Pass (Internal Port 8000, 1 Uvicorn Worker)
          v
 +-----------------------------------------------------------------------------------------+
-| FastAPI Account Link Server                                                             |
-|   - Response Headers: Referrer-Policy: no-referrer, Cache-Control: no-store, X-Frame-Options: DENY
-|   - GET /link/{token} -> HTML 로그인 폼 렌더링                                          |
-|   - POST /link/{token} -> Token 소각, IP Rate Limit 확인 및 Groupware API 로그인 (to_thread)
+| FastAPI Account Link & Web Session Server (Phase 2.2 Implemented)                       |
+|   - Response Headers: Referrer-Policy: no-referrer, Cache-Control: no-store, CSP        |
+|   - GET /link/{token} -> Token 즉시 소각, LinkSession 생성, HttpOnly Cookie 발급        |
+|   - 303 Redirect -> /link/login (브라우저 주소창에서 one-time token 파라미터 완전 제거) |
+|   - GET /link/login -> LinkSession 검증 및 CSRF 토큰 주입된 로그인 폼 렌더링             |
+|   - POST /link/login -> CSRF 검증, Rate Limit 확인, LinkSession atomic 소각             |
+|                         Groupware API 로그인 (asyncio.to_thread 격리)                   |
 |   - 인증 성공 -> session_manager.set_client(user_key, client) 등록                      |
-|   - 완료 페이지 렌더링 ("로그인 완료! 텔레그램으로 돌아가세요.")                        |
+|                  WebSession 생성 (meetingroom_web_session Cookie 발급)                  |
+|                  303 Redirect -> /timeline                                              |
+|   - GET /timeline -> WebSession 및 Groupware 세션 이중 검증 후 화면 표시                 |
+|   - POST /logout -> WebSession 파기, Groupware 세션 제거, 쿠키 삭제                      |
 +-----------------------------------------------------------------------------------------+
          |
-         | 4. UserKey 기반 세션 메모리 등록
+         | 4. UserKey 기반 세션 메모리 공유 및 사내 서비스 연동
          v
 +-----------------------------------------------------------------------------------------+
-| Telegram Bot Application (Same Process / Shared Memory)                                 |
-|   - 사용자가 텔레그램으로 복귀하여 메뉴 버튼 탭                                         |
+| Telegram Bot & Web Timeline Application (Same Process / Shared Memory)                  |
+|   - 텔레그램 및 향후 Web UI 모두 동일한 UserSessionManager / Provider 계층 재사용       |
 |   - session_manager.has_session(user_key) -> True 확인                                  |
-|   - 회의실 현황 즉시 조회 성공                                                          |
+|   - 회의실 현황 즉시 조회 및 타임라인 연동 지원                                         |
 +-----------------------------------------------------------------------------------------+
 ```
 
@@ -153,12 +159,16 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
   - `<meta name="referrer" content="no-referrer">`: 템플릿 레벨 리퍼러 차단
   > [!NOTE]
   > **보안 한계 명시**: 위 보안 헤더는 브라우저 캐싱과 외부 리퍼러 유출을 차단하지만, 브라우저 주소창 자체나 Reverse Proxy 액세스 로그에 남는 토큰 문자열을 완전히 제거하지는 못합니다.
-- **운영 목표 교환 아키텍처 (Planned Architecture / Phase 2.2)**:
-  1. `GET /link/<token>` 요청 수신 시 토큰 검증
-  2. 일회성 Secure / HttpOnly / SameSite 쿠키 또는 단기 서버 세션 state로 교환
+- **운영 목표 교환 아키텍처 (Implemented in Phase 2.2)**:
+  1. `GET /link/<token>` 요청 수신 시 토큰 즉시 검증 및 소각 (`consume_token`)
+  2. 서버 인메모리 `LinkSession` 생성 및 `meetingroom_link_session` (HttpOnly, SameSite=Lax, Path=/link) 쿠키 발급
   3. `303 See Other` 리다이렉트 -> `/link/login`
-  4. 브라우저 주소창에서 원본 토큰 파라미터 완전 제거
-  5. 웹서버 access log 포맷에서 `/link/` 경로의 토큰 마스킹 설정 적용
+  4. 브라우저 주소창에서 원본 토큰 파라미터 완전 제거 (이후 POST URL에도 토큰 미포함)
+  5. `/link/login` 폼에 암호학적 CSRF 토큰 주입 및 POST 시 `secrets.compare_digest` 검증
+  6. 인증 성공 시 `WebSession` 생성 (`meetingroom_web_session` 쿠키 발급) 후 `303 See Other` -> `/timeline`
+  7. **인프라/운영 배포 책임 사항 (Still deployment responsibility)**:
+     - Reverse Proxy access log에서 `/link/<token>` 최초 요청 URL의 토큰 원문 마스킹/suppression 설정 적용
+     - Application 로그에서는 원본 Token 및 비밀번호를 절대 출력하지 않음 (0건 보장)
 
 ---
 

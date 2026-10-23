@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -97,8 +98,19 @@ class TestLocalhostAccountLinking:
 
         with patch("meeting_room_bot.account_link.app.session_manager", session_mgr):
             with patch.object(GroupwareClient, "login", side_effect=mock_login, autospec=True):
-                res = client_app.post(f"/link/{token}", data={"username": "user", "password": "pw"})
-                assert res.status_code == 200
+                resp_get = client_app.get(f"/link/{token}", follow_redirects=False)
+                assert resp_get.status_code == 303
+                cookie = resp_get.cookies.get("meetingroom_link_session")
+                resp_form = client_app.get("/link/login", cookies={"meetingroom_link_session": cookie})
+                csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text).group(1)
+                res = client_app.post(
+                    "/link/login",
+                    data={"username": "user", "password": "pw", "csrf_token": csrf},
+                    cookies={"meetingroom_link_session": cookie},
+                    follow_redirects=False,
+                )
+                assert res.status_code == 303
+                assert res.headers["location"] == "/timeline"
 
         # Now session is available in shared session_mgr for RealProvider
         assert session_mgr.has_session(user_id) is True
