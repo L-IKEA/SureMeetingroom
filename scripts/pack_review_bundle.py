@@ -14,7 +14,7 @@ HISTORY_SUBDIR = "v0.2_phase2_2_final"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
 ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_final_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "c13b194d8a7a7660287a46d9a97f001e3c8fa759"
+TASK_BASE_COMMIT = "cd641ba376df827497a0ab367a60f23721f7ba0d"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
@@ -299,7 +299,7 @@ No actual Cloud deployment, external DNS modification, firewall change, or publi
     - `GET /link/login` -> CSRF login form
     - `POST /link/login` -> Groupware login -> `WebSession` -> `/timeline`
     - `GET /timeline` -> protected room timeline view
-    - `POST /link/logout` -> WebSession termination
+    - `POST /logout` -> WebSession termination
   - Aligned Section 6.1 sequence diagram and Section 6.2 security specifications.
   - Verified no active documentation in the repository claims `POST /link/{{token}}` is currently supported.
 
@@ -312,7 +312,7 @@ All previous Phase 2.2 hardening behaviors strictly preserved:
 - CSRF validation and constant-time check (`secrets.compare_digest`)
 - LinkSession / WebSession cookie path isolation
 - `/timeline` authentication and orphan session cleanup
-- `/link/logout` session termination
+- `/logout` session termination
 - Telegram bot full feature set preserved
 - Local Account Linking preserved
 

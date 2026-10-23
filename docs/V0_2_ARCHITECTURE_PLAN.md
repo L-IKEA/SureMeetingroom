@@ -85,7 +85,7 @@ v0.1-local-mvp는 로컬 단일 인스턴스 환경에서 Telegram Bot 및 Group
      - `GET /link/login`: `LinkSession` 검증 및 암호학적 CSRF 토큰이 주입된 로그인 폼(`login.html`) 렌더링
      - `POST /link/login`: CSRF 토큰 검증, IP Rate Limit 확인, `LinkSession` 원자적 소각, Groupware 비동기 로그인 (`asyncio.to_thread`), `WebSession` 생성 및 쿠키 발급, `303 See Other` -> `/timeline`
      - `GET /timeline`: `WebSession` 검증 기반 인가 보호된 타임라인 뷰 (`timeline.html`)
-     - `POST /link/logout`: `WebSession` 파기 및 세션 정리
+     - `POST /logout`: `WebSession` 파기 및 세션 정리
    - `session_store.py`: `LinkSessionStore` 및 `WebSessionStore` 인메모리 관리 (`Single-process pilot`).
    - `token_service.py`: 1회성 토큰 발급/검증/소각 인메모리 서비스 (`default_ttl=600s`).
    - `templates/`: 순수 HTML/CSS 폼 및 뷰 (`login.html`, `timeline.html`, `success.html`, `error.html`).
