@@ -78,6 +78,11 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/auth/session_manager.py", "src/meeting_room_bot/auth/session_manager.py"),
     ("src/meeting_room_bot/favorites/repository.py", "src/meeting_room_bot/favorites/repository.py"),
     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
+    ("src/meeting_room_bot/favorites/__init__.py", "src/meeting_room_bot/favorites/__init__.py"),
+    ("src/meeting_room_bot/telegram/states.py", "src/meeting_room_bot/telegram/states.py"),
+    ("src/meeting_room_bot/telegram/__init__.py", "src/meeting_room_bot/telegram/__init__.py"),
+    ("src/meeting_room_bot/__init__.py", "src/meeting_room_bot/__init__.py"),
+    ("pytest.ini", "pytest.ini"),
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
 
     # Additional Test Files
