@@ -661,6 +661,11 @@ class MockMeetingRoomData:
 
             res_blocks.sort(key=lambda b: b["start_time"])
 
+            next_start_str = next_meeting_start.strftime("%H:%M") if next_meeting_start else None
+            available_mins = None
+            if is_available_now and next_meeting_start:
+                available_mins = max(0, int((next_meeting_start - now).total_seconds() // 60))
+
             if is_available_now:
                 if next_meeting_start:
                     status_text = f"지금 비어있음 ({next_meeting_start.strftime('%H:%M')} 예약)"
@@ -676,6 +681,9 @@ class MockMeetingRoomData:
                 "capacity": capacity,
                 "favorite": is_fav,
                 "is_available_now": is_available_now,
+                "next_reservation_start": next_start_str,
+                "available_until": next_start_str,
+                "available_minutes": available_mins,
                 "status_text": status_text,
                 "reservations": res_blocks,
             })
@@ -697,6 +705,148 @@ class MockMeetingRoomData:
             "rooms": rooms_data,
             "total_rooms": len(rooms_data),
             "available_rooms_count": sum(1 for rm in rooms_data if rm["is_available_now"]),
+        }
+
+    @classmethod
+    def get_mock_web_availability(
+        cls,
+        asset_id: Optional[int] = None,
+        start_time: str = "14:00",
+        duration: int = 60,
+        user_key: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Generate mock web availability dataset for WHEN mode."""
+        from meeting_room_bot.models.room import Room
+        from meeting_room_bot.models.reservation import Reservation
+        from meeting_room_bot.services.availability_service import AvailabilityService
+
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        try:
+            sh, sm = map(int, start_time.strip().split(":"))
+        except Exception:
+            sh, sm = 14, 0
+            start_time = "14:00"
+
+        req_start = target_date.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        req_end = req_start + timedelta(minutes=duration)
+
+        mock_locs = cls.get_mock_locations()
+        if not mock_locs:
+            return {
+                "date": target_date.strftime("%Y-%m-%d"),
+                "date_display": "",
+                "start_time": start_time,
+                "end_time": req_end.strftime("%H:%M"),
+                "duration_minutes": duration,
+                "assets": [],
+                "selected_asset": None,
+                "rooms": [],
+                "total_rooms": 0,
+                "available_rooms_count": 0,
+            }
+
+        selected_id = asset_id if asset_id is not None and asset_id in cls.MOCK_LOCATIONS_DATA else 70
+        if selected_id not in cls.MOCK_LOCATIONS_DATA:
+            selected_id = mock_locs[0]["id"]
+
+        assets_data = [
+            {
+                "id": loc["id"],
+                "name": loc["name"],
+                "short_label": loc.get("short_label", loc["name"]),
+                "selected": (loc["id"] == selected_id),
+            }
+            for loc in mock_locs
+        ]
+
+        loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+        raw_rooms = loc_data.get("rooms", [])
+
+        has_user_favs = cls.has_favorites(user_key) if user_key else True
+        fav_rooms_pool = {170, 171, 140, 131, 180, 200}
+        fav_assets_pool = {50, 70, 80}
+
+        rooms: List[Room] = []
+        res_map: Dict[int, List[Reservation]] = {}
+        res_counter = 1
+
+        for r in raw_rooms:
+            rid = r["id"]
+            r_name = r["name"]
+            cap = r.get("capacity")
+            room_obj = Room(id=rid, asset_id=selected_id, name=r_name, capacity=cap, raw_name=r_name)
+            rooms.append(room_obj)
+
+            r_res: List[Reservation] = []
+            for s in r.get("schedules", []):
+                if "~" not in s:
+                    continue
+                parts = s.split("~")
+                try:
+                    s_parts = parts[0].strip().split(":")
+                    e_parts = parts[1].strip().split(":")
+                    s_dt = target_date.replace(hour=int(s_parts[0]), minute=int(s_parts[1]), second=0, microsecond=0)
+                    e_dt = target_date.replace(hour=int(e_parts[0]), minute=int(e_parts[1]), second=0, microsecond=0)
+                    r_res.append(Reservation(
+                        id=res_counter,
+                        room_id=rid,
+                        start_time=s_dt,
+                        end_time=e_dt,
+                    ))
+                    res_counter += 1
+                except Exception:
+                    continue
+            res_map[rid] = r_res
+
+        avail_rooms, _ = AvailabilityService.find_available_rooms(rooms, res_map, req_start, req_end)
+        avail_room_ids = {rm.id for rm in avail_rooms}
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        rooms_list: List[Dict[str, Any]] = []
+        for r in rooms:
+            is_fav = has_user_favs and ((selected_id in fav_assets_pool) or (r.id in fav_rooms_pool))
+            is_available = (r.id in avail_room_ids)
+            rooms_list.append({
+                "id": r.id,
+                "name": r.name,
+                "capacity": r.capacity,
+                "favorite": is_fav,
+                "available": is_available,
+                "status_text": "사용 가능" if is_available else "예약 있음",
+            })
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "start_time": start_time,
+            "end_time": req_end.strftime("%H:%M"),
+            "duration_minutes": duration,
+            "assets": assets_data,
+            "selected_asset": {
+                "id": selected_id,
+                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
+                "short_label": loc_data.get("short_label", f"{selected_id}층"),
+            },
+            "rooms": rooms_list,
+            "total_rooms": len(rooms_list),
+            "available_rooms_count": len(avail_rooms),
         }
 
 

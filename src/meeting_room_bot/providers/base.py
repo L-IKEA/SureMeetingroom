@@ -93,3 +93,15 @@ class MeetingRoomQueryProvider(ABC):
     ) -> QueryResult:
         """Query timeline grid data for an asset location."""
         pass
+
+    @abstractmethod
+    def get_web_availability(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[int] = None,
+        start_time: str = "14:00",
+        duration: int = 60,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        """Query room availability for WHEN mode in Web App."""
+        pass

@@ -593,6 +593,11 @@ class MeetingRoomService:
 
             res_blocks.sort(key=lambda b: b["start_time"])
 
+            next_start_str = status_info.next_reservation_start.strftime("%H:%M") if status_info.next_reservation_start else None
+            available_mins = None
+            if is_available_now and status_info.next_reservation_start:
+                available_mins = max(0, int((status_info.next_reservation_start - now).total_seconds() // 60))
+
             rooms_data.append({
                 "id": room.id,
                 "name": room.name,
@@ -600,6 +605,9 @@ class MeetingRoomService:
                 "favorite": is_fav,
                 "is_available_now": is_available_now,
                 "status_text": status_text,
+                "next_reservation_start": next_start_str,
+                "available_until": next_start_str,
+                "available_minutes": available_mins,
                 "reservations": res_blocks,
             })
 
@@ -620,4 +628,133 @@ class MeetingRoomService:
             "rooms": rooms_data,
             "total_rooms": len(rooms_data),
             "available_rooms_count": sum(1 for r in rooms_data if r["is_available_now"]),
+        }
+
+    def get_web_availability(
+        self,
+        asset_id: Optional[int] = None,
+        start_time: str = "14:00",
+        duration: int = 60,
+        user_key: Optional[UserKey] = None,
+        favorite_service: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Feature: Find meeting rooms available for a specified time slot on target_date.
+
+        Calculates room availability using AvailabilityService.find_available_rooms.
+        Returns pure structured data without Telegram formatting.
+        """
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        # Parse start_time (HH:MM)
+        try:
+            sh, sm = map(int, start_time.strip().split(":"))
+        except Exception:
+            sh, sm = 14, 0
+            start_time = "14:00"
+
+        duration = max(15, min(720, duration))
+        req_start = target_date.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        req_end = req_start + timedelta(minutes=duration)
+
+        all_assets = self.get_meeting_assets()
+        if not all_assets:
+            return {
+                "date": target_date.strftime("%Y-%m-%d"),
+                "date_display": target_date.strftime("%Y-%m-%d"),
+                "start_time": start_time,
+                "end_time": req_end.strftime("%H:%M"),
+                "duration_minutes": duration,
+                "assets": [],
+                "selected_asset": None,
+                "rooms": [],
+                "total_rooms": 0,
+                "available_rooms_count": 0,
+            }
+
+        selected_asset = None
+        if asset_id is not None:
+            selected_asset = next((a for a in all_assets if a.id == asset_id), None)
+        if selected_asset is None:
+            selected_asset = all_assets[0]
+
+        assets_data = [
+            {
+                "id": a.id,
+                "name": a.name,
+                "short_label": a.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
+                "selected": (a.id == selected_asset.id),
+            }
+            for a in all_assets
+        ]
+
+        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
+        item_res = self.client.get_items(selected_asset.id)
+        daily_res = self.client.get_daily_reservations(selected_asset.id, date_str=date_str)
+
+        rooms = _parse_rooms(item_res, selected_asset.id)
+        res_map = _parse_reservations_by_room(daily_res)
+
+        # Favorites check
+        user_fav_rooms = set()
+        user_fav_assets = set()
+        if favorite_service and user_key:
+            try:
+                uf = favorite_service.get_user_favorites(user_key)
+                user_fav_rooms = uf.favorite_rooms
+                user_fav_assets = uf.favorite_assets
+            except Exception as e:
+                logger.warning(f"Failed to load favorites for web availability: {e}")
+
+        is_asset_fav = (selected_asset.id in user_fav_assets)
+
+        avail_rooms, unavail_rooms = AvailabilityService.find_available_rooms(
+            rooms, res_map, req_start, req_end
+        )
+        avail_room_ids = {r.id for r in avail_rooms}
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        rooms_list: List[Dict[str, Any]] = []
+        for r in rooms:
+            is_fav = is_asset_fav or (r.id in user_fav_rooms)
+            is_available = (r.id in avail_room_ids)
+            rooms_list.append({
+                "id": r.id,
+                "name": r.name,
+                "capacity": r.capacity,
+                "favorite": is_fav,
+                "available": is_available,
+                "status_text": "사용 가능" if is_available else "예약 있음",
+            })
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "start_time": start_time,
+            "end_time": req_end.strftime("%H:%M"),
+            "duration_minutes": duration,
+            "assets": assets_data,
+            "selected_asset": {
+                "id": selected_asset.id,
+                "name": selected_asset.name,
+                "short_label": selected_asset.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
+            },
+            "rooms": rooms_list,
+            "total_rooms": len(rooms_list),
+            "available_rooms_count": len(avail_rooms),
         }

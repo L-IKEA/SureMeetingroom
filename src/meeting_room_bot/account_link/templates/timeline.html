@@ -138,8 +138,66 @@
             gap: 12px;
         }
 
+        /* Top 3-Mode Navigation Bar */
+        .mode-nav-container {
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .mode-navigation-bar {
+            display: flex;
+            align-items: center;
+            background: #e2e8f0;
+            border-radius: 10px;
+            padding: 3px;
+            gap: 4px;
+            width: 100%;
+            max-width: 480px;
+        }
+
+        .mode-nav-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            outline: none;
+        }
+
+        .mode-nav-btn:hover {
+            color: #1e293b;
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .mode-nav-btn.active {
+            background: #ffffff;
+            color: var(--primary-dark);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .mode-icon {
+            font-size: 15px;
+        }
+
+        /* Filter Row: Asset Selector + Favorite Filter + Summary Counter */
+        .filter-row {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
         @media (min-width: 640px) {
-            .controls-bar {
+            .filter-row {
                 flex-direction: row;
                 align-items: center;
                 justify-content: space-between;
@@ -153,7 +211,7 @@
             flex-wrap: wrap;
         }
 
-        /* Floor Selector */
+        /* Floor / Asset Selector ("어디" 통합) */
         .select-wrapper {
             position: relative;
             display: inline-block;
@@ -179,7 +237,7 @@
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
         }
 
-        /* Segmented Filter */
+        /* Favorite / All Segmented Filter */
         .segment-filter {
             display: inline-flex;
             background: #e2e8f0;
@@ -205,7 +263,7 @@
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
 
-        /* Summary Badges */
+        /* Summary Badges & Loading */
         .summary-badge-wrap {
             display: flex;
             align-items: center;
@@ -225,6 +283,91 @@
             border: 1px solid var(--success-border);
         }
 
+        .loading-spinner {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--primary);
+            background: var(--primary-light);
+            border: 1px solid #bfdbfe;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+
+        /* WHEN Controls Panel */
+        .when-controls-panel {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            background: #f1f5f9;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 14px;
+            width: 100%;
+        }
+
+        .when-control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .when-control-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .when-select {
+            appearance: none;
+            background: #ffffff url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right 10px center;
+            background-size: 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 6px 30px 6px 10px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            cursor: pointer;
+            outline: none;
+        }
+
+        .when-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        .duration-pills-group {
+            display: inline-flex;
+            gap: 3px;
+            background: #e2e8f0;
+            padding: 3px;
+            border-radius: 8px;
+        }
+
+        .duration-pill-btn {
+            border: none;
+            background: transparent;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .duration-pill-btn:hover {
+            color: var(--text-main);
+        }
+
+        .duration-pill-btn.active {
+            background: #ffffff;
+            color: var(--primary-dark);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
         /* Main Container */
         main.main-content {
             max-width: 1200px;
@@ -232,6 +375,78 @@
             width: 100%;
             padding: 0 16px 24px;
             flex: 1;
+        }
+
+        .view-panel {
+            width: 100%;
+        }
+
+        /* NOW & WHEN Card Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+            gap: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .room-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .room-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border-color: #cbd5e1;
+        }
+
+        .room-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .room-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .room-card-status-avail {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #059669;
+        }
+
+        .room-card-meta {
+            font-size: 13px;
+            color: var(--text-muted);
+            background: #f8fafc;
+            border: 1px solid #f1f5f9;
+            border-radius: 8px;
+            padding: 8px 12px;
+            line-height: 1.4;
+        }
+
+        .room-card-meta strong {
+            color: var(--text-main);
         }
 
         /* Timeline Card */
@@ -681,7 +896,7 @@
             <div class="header-left">
                 <div class="header-title-wrap">
                     <h1>회의실 시간표</h1>
-                    <div class="subtitle" id="date-display">오늘 회의실 예약 현황</div>
+                    <div class="subtitle" id="date-display">오늘 회의실 현황</div>
                 </div>
             </div>
             <div class="header-right">
@@ -698,57 +913,112 @@
     <div id="error-container" style="max-width: 1200px; margin: 8px auto 0; padding: 0 16px; {% if not error_message %}display: none;{% endif %}">
         <div class="error-banner">
             <span id="error-text">{{ error_message if error_message else "회의실 정보를 불러오지 못했습니다." }}</span>
-            <button type="button" onclick="loadTimelineData()">다시 시도</button>
+            <button type="button" onclick="retryActiveQuery()">다시 시도</button>
         </div>
     </div>
 
     <!-- Controls Bar -->
     <div class="controls-bar">
-        <div class="filter-group">
-            <!-- Floor / Asset Selector -->
-            <div class="select-wrapper">
-                <select id="asset-select" class="floor-select" onchange="onAssetChange(this.value)" aria-label="회의실 층 선택">
-                    <option value="">층 선택 불러오는 중...</option>
-                </select>
+        <!-- 1. Top 3-Mode Switcher -->
+        <div class="mode-nav-container">
+            <nav class="mode-navigation-bar" role="tablist" aria-label="조회 모드">
+                <button type="button" class="mode-nav-btn active" id="mode-now-btn" role="tab" aria-selected="true" onclick="setViewMode('now')">
+                    <span class="mode-icon">🟢</span> 지금
+                </button>
+                <button type="button" class="mode-nav-btn" id="mode-when-btn" role="tab" aria-selected="false" onclick="setViewMode('when')">
+                    <span class="mode-icon">🕐</span> 언제
+                </button>
+                <button type="button" class="mode-nav-btn" id="mode-timeline-btn" role="tab" aria-selected="false" onclick="setViewMode('timeline')">
+                    <span class="mode-icon">📊</span> 전체
+                </button>
+            </nav>
+        </div>
+
+        <!-- 2. Floor / Asset Selector ("어디" 통합) + Favorite Filter + Summary -->
+        <div class="filter-row">
+            <div class="filter-group">
+                <div class="select-wrapper">
+                    <select id="asset-select" class="floor-select" onchange="onAssetChange(this.value)" aria-label="회의실 층 선택">
+                        <option value="">층 선택 불러오는 중...</option>
+                    </select>
+                </div>
+
+                <div class="segment-filter" role="tablist" aria-label="필터">
+                    <button type="button" class="segment-btn active" id="filter-all-btn" onclick="setFilter('all')">전체</button>
+                    <button type="button" class="segment-btn" id="filter-fav-btn" onclick="setFilter('fav')">⭐ 즐겨찾기</button>
+                </div>
             </div>
 
-            <!-- Favorite / All Segmented Filter -->
-            <div class="segment-filter" role="tablist" aria-label="필터">
-                <button type="button" class="segment-btn active" id="filter-all-btn" onclick="setFilter('all')">전체</button>
-                <button type="button" class="segment-btn" id="filter-fav-btn" onclick="setFilter('fav')">⭐ 즐겨찾기</button>
+            <div class="summary-badge-wrap">
+                <span class="status-chip" id="available-counter">
+                    🟢 지금 사용 가능: 0개
+                </span>
+                <span class="loading-spinner" id="loading-spinner" style="display: none;">불러오는 중...</span>
             </div>
         </div>
 
-        <div class="summary-badge-wrap">
-            <span class="status-chip" id="available-counter">
-                🟢 지금 사용 가능: 0개
-            </span>
+        <!-- 3. WHEN Controls Panel (Visible only in WHEN mode) -->
+        <div class="when-controls-panel" id="when-controls-panel" style="display: none;">
+            <div class="when-control-group">
+                <label for="when-start-time" class="when-control-label">시작:</label>
+                <div class="select-wrapper">
+                    <select id="when-start-time" class="when-select" onchange="onWhenConditionChange()" aria-label="시작 시각">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+            </div>
+            <div class="when-control-group">
+                <span class="when-control-label">사용 시간:</span>
+                <div class="duration-pills-group" role="radiogroup" aria-label="사용 시간">
+                    <button type="button" class="duration-pill-btn" data-duration="30" onclick="setWhenDuration(30)">30분</button>
+                    <button type="button" class="duration-pill-btn active" data-duration="60" onclick="setWhenDuration(60)">1시간</button>
+                    <button type="button" class="duration-pill-btn" data-duration="90" onclick="setWhenDuration(90)">1시간 30분</button>
+                    <button type="button" class="duration-pill-btn" data-duration="120" onclick="setWhenDuration(120)">2시간</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <!-- Main Content Grid -->
     <main class="main-content">
-        <div class="timeline-card">
-            <div class="timeline-scroll-container" id="timeline-scroll">
-                <div class="timeline-table" id="timeline-table">
-                    <!-- Hours Header Row -->
-                    <div class="timeline-header-row" id="timeline-header">
-                        <div class="room-col-header">회의실</div>
-                        <div class="hours-col-header" id="hours-header-container">
+        <!-- A. NOW View -->
+        <div id="now-view-container" class="view-panel">
+            <div class="cards-grid" id="now-cards-container">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+
+        <!-- B. WHEN View -->
+        <div id="when-view-container" class="view-panel" style="display: none;">
+            <div class="cards-grid" id="when-cards-container">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+
+        <!-- C. TIMELINE View -->
+        <div id="timeline-view-container" class="view-panel" style="display: none;">
+            <div class="timeline-card">
+                <div class="timeline-scroll-container" id="timeline-scroll">
+                    <div class="timeline-table" id="timeline-table">
+                        <!-- Hours Header Row -->
+                        <div class="timeline-header-row" id="timeline-header">
+                            <div class="room-col-header">회의실</div>
+                            <div class="hours-col-header" id="hours-header-container">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Room Rows Container -->
+                        <div id="rooms-rows-container">
                             <!-- Injected by JS -->
                         </div>
-                    </div>
-
-                    <!-- Room Rows Container -->
-                    <div id="rooms-rows-container">
-                        <!-- Injected by JS -->
                     </div>
                 </div>
             </div>
         </div>
     </main>
 
-    <!-- Detail Bottom Sheet / Modal -->
+    <!-- Detail Bottom Sheet / Modal (For TIMELINE blocks) -->
     <div class="modal-backdrop" id="detail-modal" onclick="onBackdropClick(event)">
         <div class="modal-panel">
             <div class="modal-header">
@@ -782,15 +1052,23 @@
     <!-- Web App Application Logic -->
     <script>
         // State
-        let currentTimelineData = null;
+        let currentViewMode = 'now'; // 'now' | 'when' | 'timeline'
         let currentFilter = 'all'; // 'all' | 'fav'
+        let currentTimelineData = null;
+        let currentWhenData = null;
+        let whenStartTime = '14:00';
+        let whenDuration = 60;
+        let isFetching = false;
 
         // DOM Elements
         const assetSelect = document.getElementById('asset-select');
         const dateDisplay = document.getElementById('date-display');
         const availableCounter = document.getElementById('available-counter');
+        const loadingSpinner = document.getElementById('loading-spinner');
         const hoursHeader = document.getElementById('hours-header-container');
         const roomsContainer = document.getElementById('rooms-rows-container');
+        const nowCardsContainer = document.getElementById('now-cards-container');
+        const whenCardsContainer = document.getElementById('when-cards-container');
         const errorContainer = document.getElementById('error-container');
         const errorText = document.getElementById('error-text');
         const detailModal = document.getElementById('detail-modal');
@@ -804,6 +1082,8 @@
 
         // Initialize application on load
         document.addEventListener('DOMContentLoaded', () => {
+            initWhenStartTimeOptions();
+
             // Check initial error from server bootstrap
             const errorElem = document.getElementById('initial-error-data');
             let initialError = '';
@@ -831,15 +1111,72 @@
             }
 
             if (initialData && initialData.rooms) {
-                renderTimeline(initialData);
+                renderTimelineData(initialData);
+                // Default mode is NOW
+                setViewMode('now');
             } else {
                 loadTimelineData();
             }
         });
 
+        // Initialize 08:00 to 19:30 start times in select
+        function initWhenStartTimeOptions() {
+            const select = document.getElementById('when-start-time');
+            select.innerHTML = '';
+            for (let h = 8; h <= 19; h++) {
+                for (let m of [0, 30]) {
+                    const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                    const opt = document.createElement('option');
+                    opt.value = timeStr;
+                    opt.textContent = timeStr;
+                    if (timeStr === whenStartTime) {
+                        opt.selected = true;
+                    }
+                    select.appendChild(opt);
+                }
+            }
+        }
+
+        // Mode Switching: 'now' | 'when' | 'timeline'
+        function setViewMode(mode) {
+            currentViewMode = mode;
+
+            // Update Tab Button States
+            document.getElementById('mode-now-btn').classList.toggle('active', mode === 'now');
+            document.getElementById('mode-now-btn').setAttribute('aria-selected', mode === 'now');
+
+            document.getElementById('mode-when-btn').classList.toggle('active', mode === 'when');
+            document.getElementById('mode-when-btn').setAttribute('aria-selected', mode === 'when');
+
+            document.getElementById('mode-timeline-btn').classList.toggle('active', mode === 'timeline');
+            document.getElementById('mode-timeline-btn').setAttribute('aria-selected', mode === 'timeline');
+
+            // Show/Hide WHEN controls panel
+            document.getElementById('when-controls-panel').style.display = (mode === 'when') ? 'flex' : 'none';
+
+            // Show/Hide View Panels
+            document.getElementById('now-view-container').style.display = (mode === 'now') ? 'block' : 'none';
+            document.getElementById('when-view-container').style.display = (mode === 'when') ? 'block' : 'none';
+            document.getElementById('timeline-view-container').style.display = (mode === 'timeline') ? 'block' : 'none';
+
+            if (mode === 'now') {
+                renderNowView();
+            } else if (mode === 'when') {
+                if (!currentWhenData) {
+                    loadWhenData();
+                } else {
+                    renderWhenView();
+                }
+            } else if (mode === 'timeline') {
+                renderTimelineTable();
+            }
+        }
+
         // Fetch dynamic timeline data from /api/web/timeline
         async function loadTimelineData(assetId = null) {
             hideError();
+            showLoading(true);
+
             let url = '/api/web/timeline';
             if (assetId !== null) {
                 url += `?asset_id=${encodeURIComponent(assetId)}`;
@@ -864,15 +1201,77 @@
                 }
 
                 const data = await response.json();
-                renderTimeline(data);
+                currentTimelineData = data;
+                currentWhenData = null; // Invalidate cached WHEN data on asset switch
+                renderTimelineData(data);
+
+                if (currentViewMode === 'now') {
+                    renderNowView();
+                } else if (currentViewMode === 'timeline') {
+                    renderTimelineTable();
+                } else if (currentViewMode === 'when') {
+                    loadWhenData(assetId);
+                }
             } catch (err) {
                 console.error('Fetch timeline error', err);
                 showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
+            } finally {
+                showLoading(false);
             }
         }
 
-        // Render entire timeline dataset
-        function renderTimeline(data) {
+        // Fetch dynamic availability data from /api/web/availability
+        async function loadWhenData(assetId = null) {
+            hideError();
+            showLoading(true);
+
+            const targetAssetId = assetId !== null ? assetId : (assetSelect.value || currentTimelineData?.selected_asset?.id || 70);
+            const url = `/api/web/availability?asset_id=${encodeURIComponent(targetAssetId)}&start=${encodeURIComponent(whenStartTime)}&duration_minutes=${encodeURIComponent(whenDuration)}`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin'
+                });
+
+                if (response.status === 401) {
+                    window.location.reload();
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    showError(errData.error || '회의실 가용성 정보를 불러오지 못했습니다.');
+                    return;
+                }
+
+                const data = await response.json();
+                currentWhenData = data;
+
+                // Sync asset dropdown if needed
+                if (Array.isArray(data.assets) && data.assets.length > 0 && assetSelect.children.length <= 1) {
+                    syncAssetDropdown(data.assets);
+                }
+
+                renderWhenView();
+            } catch (err) {
+                console.error('Fetch availability error', err);
+                showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Sync Asset Dropdown helper
+        function syncAssetDropdown(assets) {
+            assetSelect.innerHTML = assets.map(a => 
+                `<option value="${a.id}" ${a.selected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`
+            ).join('');
+        }
+
+        // Process Timeline Data Structure
+        function renderTimelineData(data) {
             currentTimelineData = data;
 
             // 1. Date Header
@@ -882,51 +1281,27 @@
 
             // 2. Floor Selector Options
             if (Array.isArray(data.assets) && data.assets.length > 0) {
-                assetSelect.innerHTML = data.assets.map(a => 
-                    `<option value="${a.id}" ${a.selected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`
-                ).join('');
+                syncAssetDropdown(data.assets);
             }
 
-            // 3. Available counter
-            const total = data.total_rooms || (data.rooms ? data.rooms.length : 0);
-            const avail = data.available_rooms_count || 0;
-            availableCounter.innerHTML = `🟢 지금 사용 가능: <strong>${avail}</strong> / ${total}개`;
-
-            // 4. Hours Axis Header
+            // 3. Hours Axis Header (for TIMELINE)
             renderHoursHeader(data.start_hour || 8, data.end_hour || 20);
 
-            // 5. Room Rows
-            renderRooms();
+            // 4. Pre-render timeline table
+            renderTimelineTable();
         }
 
-        function renderHoursHeader(startHour, endHour) {
-            hoursHeader.innerHTML = '';
-            const totalHours = endHour - startHour;
-            if (totalHours <= 0) return;
-
-            // Dynamically set CSS custom property so background grid matches exact totalHours
-            document.documentElement.style.setProperty('--timeline-total-hours', totalHours);
-
-            for (let h = startHour; h <= endHour; h++) {
-                const pct = ((h - startHour) / totalHours) * 100;
-                const tick = document.createElement('div');
-                tick.className = 'hour-tick';
-                tick.style.left = `${pct}%`;
-                tick.textContent = `${String(h).padStart(2, '0')}:00`;
-                hoursHeader.appendChild(tick);
-            }
-        }
-
-        // Render Room rows according to active filter
-        function renderRooms() {
-            roomsContainer.innerHTML = '';
-            if (!currentTimelineData || !currentTimelineData.rooms) {
-                roomsContainer.innerHTML = `
-                    <div class="empty-state">
+        // A. Render NOW View Cards
+        function renderNowView() {
+            nowCardsContainer.innerHTML = '';
+            if (!currentTimelineData || !currentTimelineData.rooms || currentTimelineData.rooms.length === 0) {
+                nowCardsContainer.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
                         <div class="icon">🏢</div>
-                        <h3>회의실 정보가 없습니다.</h3>
-                        <p>선택하신 위치에 등록된 회의실이 없습니다.</p>
+                        <h3>이 위치에 등록된 회의실이 없습니다.</h3>
+                        <p>다른 층이나 위치를 선택해주세요.</p>
                     </div>`;
+                updateCounter(0, 0);
                 return;
             }
 
@@ -935,13 +1310,149 @@
                 rooms = rooms.filter(r => r.favorite);
             }
 
+            const availRooms = rooms.filter(r => r.is_available_now);
+            updateCounter(availRooms.length, rooms.length);
+
+            if (availRooms.length === 0) {
+                if (currentFilter === 'fav') {
+                    nowCardsContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">⭐</div>
+                            <h3>즐겨찾기한 회의실이 없습니다.</h3>
+                            <p>전체 탭에서 회의실을 확인하거나 자주 쓰는 회의실을 확인해보세요.</p>
+                        </div>`;
+                } else {
+                    nowCardsContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">⏳</div>
+                            <h3>현재 바로 사용할 수 있는 회의실이 없습니다.</h3>
+                            <p>모든 회의실이 사용 중입니다. 언제 탭에서 예약 가능한 시간을 찾아보세요.</p>
+                        </div>`;
+                }
+                return;
+            }
+
+            availRooms.forEach(room => {
+                const card = document.createElement('div');
+                card.className = 'room-card now-card';
+
+                let nextResHtml = '<strong>오늘 남은 예약 없음</strong>';
+                if (room.next_reservation_start) {
+                    const minsPart = (room.available_minutes !== null && room.available_minutes !== undefined)
+                        ? ` <span style="color:#059669; font-weight:700;">(약 ${room.available_minutes}분 사용 가능)</span>`
+                        : '';
+                    nextResHtml = `다음 예약: <strong>${escapeHtml(room.next_reservation_start)}</strong>${minsPart}`;
+                }
+
+                card.innerHTML = `
+                    <div class="room-card-header">
+                        <div class="room-card-title">
+                            <span class="now-status-dot avail"></span>
+                            <span>${escapeHtml(room.name)}</span>
+                            ${room.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
+                        </div>
+                        ${room.capacity ? `<span class="capacity-pill">${room.capacity}인실</span>` : ''}
+                    </div>
+                    <div class="room-card-status-avail">🟢 지금 사용 가능</div>
+                    <div class="room-card-meta">
+                        <div>${nextResHtml}</div>
+                    </div>
+                `;
+                nowCardsContainer.appendChild(card);
+            });
+        }
+
+        // B. Render WHEN View Cards
+        function renderWhenView() {
+            whenCardsContainer.innerHTML = '';
+            if (!currentWhenData || !currentWhenData.rooms || currentWhenData.rooms.length === 0) {
+                whenCardsContainer.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <div class="icon">🏢</div>
+                        <h3>이 위치에 등록된 회의실이 없습니다.</h3>
+                        <p>다른 층이나 위치를 선택해주세요.</p>
+                    </div>`;
+                updateCounter(0, 0, '사용 가능');
+                return;
+            }
+
+            let rooms = currentWhenData.rooms;
+            if (currentFilter === 'fav') {
+                rooms = rooms.filter(r => r.favorite);
+            }
+
+            const availRooms = rooms.filter(r => r.available);
+            updateCounter(availRooms.length, rooms.length, `${currentWhenData.start_time} ~ ${currentWhenData.end_time} 사용 가능`);
+
+            if (availRooms.length === 0) {
+                if (currentFilter === 'fav') {
+                    whenCardsContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">⭐</div>
+                            <h3>즐겨찾기한 회의실이 없습니다.</h3>
+                            <p>전체 탭에서 회의실을 확인하거나 다른 시간대를 선택해보세요.</p>
+                        </div>`;
+                } else {
+                    whenCardsContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">🔍</div>
+                            <h3>선택한 시간에 사용 가능한 회의실이 없습니다.</h3>
+                            <p>${escapeHtml(currentWhenData.start_time)} ~ ${escapeHtml(currentWhenData.end_time)} (${currentWhenData.duration_minutes}분) 구간에 비어있는 회의실이 없습니다.</p>
+                        </div>`;
+                }
+                return;
+            }
+
+            availRooms.forEach(room => {
+                const card = document.createElement('div');
+                card.className = 'room-card when-card';
+                card.innerHTML = `
+                    <div class="room-card-header">
+                        <div class="room-card-title">
+                            <span class="now-status-dot avail"></span>
+                            <span>${escapeHtml(room.name)}</span>
+                            ${room.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
+                        </div>
+                        ${room.capacity ? `<span class="capacity-pill">${room.capacity}인실</span>` : ''}
+                    </div>
+                    <div class="room-card-status-avail">🟢 사용 가능</div>
+                    <div class="room-card-meta">
+                        <div>구간: <strong>${escapeHtml(currentWhenData.start_time)} ~ ${escapeHtml(currentWhenData.end_time)}</strong> (${currentWhenData.duration_minutes}분)</div>
+                    </div>
+                `;
+                whenCardsContainer.appendChild(card);
+            });
+        }
+
+        // C. Render TIMELINE View
+        function renderTimelineTable() {
+            roomsContainer.innerHTML = '';
+            if (!currentTimelineData || !currentTimelineData.rooms) {
+                roomsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">🏢</div>
+                        <h3>회의실 정보가 없습니다.</h3>
+                        <p>선택하신 위치에 등록된 회의실이 없습니다.</p>
+                    </div>`;
+                updateCounter(0, 0);
+                return;
+            }
+
+            let rooms = currentTimelineData.rooms;
+            if (currentFilter === 'fav') {
+                rooms = rooms.filter(r => r.favorite);
+            }
+
+            const availCount = rooms.filter(r => r.is_available_now).length;
+            updateCounter(availCount, rooms.length);
+
             if (rooms.length === 0) {
                 if (currentFilter === 'fav') {
                     roomsContainer.innerHTML = `
                         <div class="empty-state">
                             <div class="icon">⭐</div>
                             <h3>즐겨찾기된 회의실이 없습니다.</h3>
-                            <p>전체 탭에서 회의실을 확인하거나 챗봇에서 자주 쓰는 회의실을 즐겨찾기로 등록해보세요.</p>
+                            <p>전체 탭에서 회의실을 확인하거나 자주 쓰는 회의실을 등록해보세요.</p>
                         </div>`;
                 } else {
                     roomsContainer.innerHTML = `
@@ -979,7 +1490,7 @@
                 const trackCell = document.createElement('div');
                 trackCell.className = 'timeline-track-cell';
 
-                // Vertical Current Time Marker
+                // Current Time Line Indicator
                 if (typeof currentPct === 'number' && currentPct >= 0 && currentPct <= 100) {
                     const marker = document.createElement('div');
                     marker.className = 'current-time-marker';
@@ -1034,10 +1545,31 @@
             });
         }
 
-        // Change Floor / Asset
+        function renderHoursHeader(startHour, endHour) {
+            hoursHeader.innerHTML = '';
+            const totalHours = endHour - startHour;
+            if (totalHours <= 0) return;
+
+            document.documentElement.style.setProperty('--timeline-total-hours', totalHours);
+
+            for (let h = startHour; h <= endHour; h++) {
+                const pct = ((h - startHour) / totalHours) * 100;
+                const tick = document.createElement('div');
+                tick.className = 'hour-tick';
+                tick.style.left = `${pct}%`;
+                tick.textContent = `${String(h).padStart(2, '0')}:00`;
+                hoursHeader.appendChild(tick);
+            }
+        }
+
+        // Change Floor / Asset Handler
         function onAssetChange(assetId) {
             if (!assetId) return;
-            loadTimelineData(assetId);
+            if (currentViewMode === 'when') {
+                loadWhenData(assetId);
+            } else {
+                loadTimelineData(assetId);
+            }
         }
 
         // Filter Toggle ('all' vs 'fav')
@@ -1045,7 +1577,53 @@
             currentFilter = type;
             document.getElementById('filter-all-btn').classList.toggle('active', type === 'all');
             document.getElementById('filter-fav-btn').classList.toggle('active', type === 'fav');
-            renderRooms();
+
+            if (currentViewMode === 'now') {
+                renderNowView();
+            } else if (currentViewMode === 'when') {
+                renderWhenView();
+            } else if (currentViewMode === 'timeline') {
+                renderTimelineTable();
+            }
+        }
+
+        // WHEN condition change handlers
+        function onWhenConditionChange() {
+            const select = document.getElementById('when-start-time');
+            whenStartTime = select.value;
+            loadWhenData();
+        }
+
+        function setWhenDuration(duration) {
+            whenDuration = duration;
+            document.querySelectorAll('.duration-pill-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.getAttribute('data-duration')) === duration);
+            });
+            loadWhenData();
+        }
+
+        // Update Counter Chip
+        function updateCounter(avail, total, customText = null) {
+            if (customText) {
+                availableCounter.innerHTML = `🟢 ${escapeHtml(customText)}: <strong>${avail}</strong>개`;
+            } else {
+                availableCounter.innerHTML = `🟢 지금 사용 가능: <strong>${avail}</strong> / ${total}개`;
+            }
+        }
+
+        // Loading Indicator helper
+        function showLoading(isLoading) {
+            isFetching = isLoading;
+            loadingSpinner.style.display = isLoading ? 'inline-block' : 'none';
+        }
+
+        // Retry handler
+        function retryActiveQuery() {
+            if (currentViewMode === 'when') {
+                loadWhenData();
+            } else {
+                loadTimelineData();
+            }
         }
 
         // Modal Operations

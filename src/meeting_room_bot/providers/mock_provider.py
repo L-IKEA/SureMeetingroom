@@ -88,3 +88,22 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
             target_date=target_date,
         )
         return QueryResult(status=QueryStatus.SUCCESS, data=res)
+
+    def get_web_availability(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[int] = None,
+        start_time: str = "14:00",
+        duration: int = 60,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        uid = self._resolve_uid(user_id)
+        res = MockMeetingRoomData.get_mock_web_availability(
+            asset_id=asset_id,
+            start_time=start_time,
+            duration=duration,
+            user_key=uid,
+            target_date=target_date,
+        )
+        return QueryResult(status=QueryStatus.SUCCESS, data=res)
+

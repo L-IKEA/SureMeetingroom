@@ -453,6 +453,7 @@ graph TD
 - [x] **Phase 2.1**: Security Foundation & Hardening (Keyboards, UserKey namespace, Rate limit, I/O isolation, Forwarded IPs)
 - [x] **Phase 2.2**: Secure Account Linking & Web Session Foundation (Token exchange, LinkSession, CSRF, WebSession, /logout)
 - [x] **Phase 2.3A**: Platform-independent Meeting Room Web App v1 (/timeline, mobile-first, sticky rooms, time axis, reserver/title mapping, 0 Telegram dependency)
+- [x] **Phase 2.3A-2**: Meeting Room Web App Core UX Integration (NOW mode card view, WHEN slot availability via AvailabilityService, WHERE as Asset dropdown, Universal Favorites scope, Preserved Timeline, 0 Telegram dependency)
 - [ ] **Phase 2.3B**: Telegram Mini App Adapter (WebAppInfo, initData validation, CSP frame-ancestors adjustment)
 - [ ] **Phase 2.4**: Production HTTPS & Ingress Deployment (Nginx / Cloudflare / Let's Encrypt)
 

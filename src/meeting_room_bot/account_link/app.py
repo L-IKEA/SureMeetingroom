@@ -377,6 +377,77 @@ def create_app() -> FastAPI:
                 status_code=500,
             )
 
+    @app.get("/api/web/availability")
+    async def get_web_availability_api(request: Request):
+        """Web App JSON API for WHEN mode room availability query."""
+        config = get_config()
+        web_session_id = request.cookies.get(config.web_session_cookie_name)
+        if not web_session_id:
+            return JSONResponse(
+                content={"error": "인증되지 않은 접근입니다. 계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+
+        web_session = web_session_store.get_web_session(web_session_id)
+        if not web_session:
+            return JSONResponse(
+                content={"error": "웹 세션이 만료되었습니다. 다시 계정을 연결해주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+
+        if not session_manager.has_session(web_session.user_key):
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+
+        asset_id_param = request.query_params.get("asset_id")
+        target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
+
+        start_time = request.query_params.get("start") or request.query_params.get("start_time") or "14:00"
+        duration_param = request.query_params.get("duration_minutes") or request.query_params.get("duration")
+        duration = 60
+        if duration_param and duration_param.isdigit():
+            duration = int(duration_param)
+
+        provider = get_provider()
+        result = await asyncio.to_thread(
+            provider.get_web_availability,
+            user_id=web_session.user_key,
+            asset_id=target_asset_id,
+            start_time=start_time,
+            duration=duration,
+        )
+
+        if result.status == QueryStatus.SUCCESS:
+            return JSONResponse(content=result.data, status_code=200)
+        elif result.status == QueryStatus.SESSION_EXPIRED:
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+        elif result.status == QueryStatus.NOT_AUTHENTICATED:
+            return JSONResponse(
+                content={"error": "계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+        elif result.status == QueryStatus.NETWORK_ERROR:
+            return JSONResponse(
+                content={"error": "회의실 가용성 정보를 불러오지 못했습니다.", "code": "NETWORK_ERROR"},
+                status_code=502,
+            )
+        else:
+            return JSONResponse(
+                content={"error": "회의실 가용성 정보를 불러오지 못했습니다.", "code": "GROUPWARE_ERROR"},
+                status_code=500,
+            )
+
     @app.post("/logout")
     async def process_logout(request: Request):
         """Terminate WebSession and remove associated Groupware session from UserSessionManager."""
