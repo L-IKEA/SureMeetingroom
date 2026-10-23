@@ -56,15 +56,30 @@ Phase 2.3A-2의 목적은 기존 텔레그램 봇에서 검증된 4가지 핵심
 
 ---
 
-## 4. "어디" → Asset Selector 재해석
+## 4. "어디" → Asset Selector 재해석 및 Cross-Mode Asset State 일관성
 
 - 기존 Telegram의 "어디 빈 회의실" 메뉴는 층/위치를 먼저 고르게 하는 네비게이션 역할을 담당했습니다.
 - Web App에서는 이를 별도 화면으로 나누지 않고 **상단 층/위치 선택 드롭다운**(`id="asset-select"`)으로 일원화하였습니다.
 - 선택 목록은 코스튬이나 HTML 하드코딩이 아닌, Groupware API / Provider의 실제 `Asset` 데이터를 통해 동적으로 생성됩니다.
-- 층 변경 이벤트 발생 시:
-  - NOW 모드: `/api/web/timeline?asset_id=X` 갱신 후 즉시 카드 재렌더링.
-  - WHEN 모드: `/api/web/availability?asset_id=X&start=...&duration_minutes=...` 호출 후 카드 재렌더링.
-  - TIMELINE 모드: 타임라인 데이터 재조회 및 그리드 재렌더링.
+
+### 4.1 Cross-Mode Global Asset State (`currentAssetId`)
+Asset은 특정 ViewMode에 국한되지 않는 **Web App 전역 상태(`currentAssetId`)**로 관리됩니다. 다음 invariant를 엄격히 유지합니다:
+```
+Number(assetSelect.value) == currentAssetId == currently rendered dataset.selected_asset.id
+```
+
+1. **Asset 변경 시 (`onAssetChange`)**:
+   - `currentAssetId = Number(assetId);`
+   - `assetSelect.value = String(currentAssetId);`
+   - 현재 활성 모드에 맞는 데이터를 즉시 페치(`when`이면 `loadWhenData`, 그 외면 `loadTimelineData`).
+   - 다른 모드의 캐시 데이터는 stale 처리(`currentTimelineData = null` 또는 `currentWhenData = null`)하여 이전 층 데이터가 재노출되는 것을 방지.
+2. **Mode 전환 시 (`setViewMode`)**:
+   - `now` 또는 `timeline`: 캐시된 `currentTimelineData`가 없거나 `selected_asset.id !== currentAssetId`이면 `loadTimelineData(currentAssetId)`로 지연 페치. 동일 층이면 즉시 렌더링.
+   - `when`: 캐시된 `currentWhenData`가 없거나 `selected_asset.id !== currentAssetId`, 또는 `whenStartTime`/`whenDuration`이 현재 조건과 불일치하면 `loadWhenData(currentAssetId)`로 지연 페치.
+   - 불필요한 Groupware API 중복 호출을 최소화하면서도 층 불일치 버그를 100% 방지.
+3. **상태 지속성 (State Persistence)**:
+   - `currentFilter` (`'all'` vs `'fav'`): ViewMode나 Asset이 변경되어도 리셋되지 않고 유지.
+   - `whenStartTime` 및 `whenDuration`: Asset 변경 후에도 선택한 시각 및 사용 시간 조건 유지.
 
 ---
 
@@ -101,12 +116,12 @@ Phase 2.3A-2의 목적은 기존 텔레그램 봇에서 검증된 4가지 핵심
 - **파라미터**: `asset_id` (선택, 정수)
 - **응답**: `rooms` 목록에 `is_available_now`, `next_reservation_start`, `available_until`, `available_minutes`가 보강되어 초기 부트스트랩 시 NOW 모드가 추가 네트워크 요청 없이 즉시 렌더링됨.
 
-### 7.2 GET `/api/web/availability` (신규 추가)
+### 7.2 GET `/api/web/availability` (신규 추가 및 검증 강화)
 - **용도**: WHEN 모드 회의실 가용성 구간 조회.
 - **파라미터**:
   - `asset_id` (선택, 정수): 조회할 위치/층 ID (기본값: 첫 번째 에셋)
-  - `start` (선택, 문자열): 시작 시각 `HH:MM` (기본값: `"14:00"`)
-  - `duration_minutes` (선택, 정수): 예약 희망 시간(분) (기본값: `60`)
+  - `start` (선택, 문자열): 시작 시각 `HH:MM` (기본값: `"14:00"`). 유효한 24시간 형식(`00:00`~`23:59`)이어야 하며, 빈 값이나 malformed 입력 시 `HTTP 400 Bad Request` (`code: INVALID_PARAMS`)를 반환.
+  - `duration_minutes` (선택, 정수): 예약 희망 시간(분) (기본값: `60`). 최소 15분 ~ 최대 480분 범위 정수여야 하며, 범위 초과나 non-integer 입력 시 `HTTP 400 Bad Request` (`code: INVALID_PARAMS`)를 반환하여 500 에러를 원천 차단.
 - **응답 구조**:
   ```json
   {

@@ -532,3 +532,178 @@ class TestWebAPIAndUIIntegration:
         assert "telegram-web-app.js" not in html
         assert "initData" not in html
         assert "MainButton" not in html
+
+
+class TestCrossModeAssetStateHardening:
+    """State Hardening & Regression Tests for Cross-Mode Asset Consistency and API Validation."""
+
+    def test_cross_mode_asset_consistency_scenario_g(self):
+        """Scenario G:
+        1. Initial Asset = 70
+        2. ViewMode = NOW
+        3. Switch to WHEN
+        4. Select Asset = 80
+        5. WHEN result selected_asset.id == 80
+        6. Switch to NOW
+        7. NOW result selected_asset.id == 80
+        8. Switch to TIMELINE
+        9. TIMELINE result selected_asset.id == 80
+        """
+        client = TestClient(app)
+        user_key = UserKey("telegram", "scenario_g_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            # 1 & 2: Initial Asset 70 in NOW / Timeline bootstrap
+            resp_initial = client.get("/api/web/timeline?asset_id=70")
+            assert resp_initial.status_code == 200
+            initial_data = resp_initial.json()
+            assert initial_data["selected_asset"]["id"] == 70
+
+            # 3 & 4: Switch to WHEN, select Asset 80
+            resp_when = client.get("/api/web/availability?asset_id=80&start=14:00&duration_minutes=60")
+            assert resp_when.status_code == 200
+            when_data = resp_when.json()
+            # 5: WHEN result selected_asset.id == 80
+            assert when_data["selected_asset"]["id"] == 80
+
+            # 6 & 7: Switch to NOW -> lazy load timeline for currentAssetId (80)
+            resp_now = client.get("/api/web/timeline?asset_id=80")
+            assert resp_now.status_code == 200
+            now_data = resp_now.json()
+            assert now_data["selected_asset"]["id"] == 80
+
+            # 8 & 9: Switch to TIMELINE -> reuses timeline for currentAssetId (80)
+            assert now_data["selected_asset"]["id"] == 80
+            assert all(room["id"] in [180, 181, 182] for room in now_data["rooms"])
+
+    def test_cross_mode_asset_consistency_reverse_flow(self):
+        """Reverse Flow:
+        Asset 80 -> WHEN -> switch to 70 -> TIMELINE preserves 70.
+        """
+        client = TestClient(app)
+        user_key = UserKey("telegram", "reverse_flow_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            # Start at Asset 80
+            resp_initial = client.get("/api/web/timeline?asset_id=80")
+            assert resp_initial.status_code == 200
+            assert resp_initial.json()["selected_asset"]["id"] == 80
+
+            # WHEN with 70
+            resp_when_70 = client.get("/api/web/availability?asset_id=70&start=15:00&duration_minutes=30")
+            assert resp_when_70.status_code == 200
+            assert resp_when_70.json()["selected_asset"]["id"] == 70
+
+            # TIMELINE with 70
+            resp_timeline_70 = client.get("/api/web/timeline?asset_id=70")
+            assert resp_timeline_70.status_code == 200
+            assert resp_timeline_70.json()["selected_asset"]["id"] == 70
+            assert all(r["id"] in [170, 171, 172, 173, 174, 175] for r in resp_timeline_70.json()["rooms"])
+
+    def test_favorites_preserved_across_mode_and_asset_switches(self):
+        """Favorites state is preserved when switching between modes and assets."""
+        fav_service = FavoriteService._instance
+        user_key = UserKey("telegram", "fav_preserve_user")
+        # Add favorite in 8층 (180: 8-1) and 7층 (170: 7-1)
+        fav_service.add_room(user_key, 180)
+        fav_service.add_room(user_key, 170)
+
+        client = TestClient(app)
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            # Check WHEN mode for Asset 80
+            resp_when = client.get("/api/web/availability?asset_id=80&start=14:00&duration_minutes=60")
+            assert resp_when.status_code == 200
+            when_rooms = resp_when.json()["rooms"]
+            assert all(r["favorite"] is True for r in when_rooms)
+
+            # Switch to NOW / TIMELINE mode for Asset 80
+            resp_timeline = client.get("/api/web/timeline?asset_id=80")
+            assert resp_timeline.status_code == 200
+            timeline_rooms = resp_timeline.json()["rooms"]
+            assert all(r["favorite"] is True for r in timeline_rooms)
+
+            # Switch to Asset 70
+            resp_timeline_70 = client.get("/api/web/timeline?asset_id=70")
+            assert resp_timeline_70.status_code == 200
+            assert all(r["favorite"] is True for r in resp_timeline_70.json()["rooms"])
+
+    def test_when_conditions_preserved_across_asset_switch(self):
+        """WHEN start time and duration conditions persist when switching assets."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "when_cond_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            start = "16:30"
+            duration = 90
+            resp_70 = client.get(f"/api/web/availability?asset_id=70&start={start}&duration_minutes={duration}")
+            assert resp_70.status_code == 200
+            d70 = resp_70.json()
+            assert d70["start_time"] == "16:30"
+            assert d70["duration_minutes"] == 90
+            assert d70["selected_asset"]["id"] == 70
+
+            resp_80 = client.get(f"/api/web/availability?asset_id=80&start={start}&duration_minutes={duration}")
+            assert resp_80.status_code == 200
+            d80 = resp_80.json()
+            assert d80["start_time"] == "16:30"
+            assert d80["duration_minutes"] == 90
+            assert d80["selected_asset"]["id"] == 80
+
+    def test_invalid_availability_start_time_returns_400(self):
+        """Invalid start_time formats return HTTP 400 Bad Request instead of 500."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "invalid_start_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            for bad_start in ["99:99", "abc", "25:00", "14:65", "-01:00", ""]:
+                resp = client.get(f"/api/web/availability?start={bad_start}")
+                assert resp.status_code == 400, f"Expected 400 for start={bad_start}, got {resp.status_code}"
+                assert resp.json().get("code") == "INVALID_PARAMS"
+
+    def test_invalid_availability_duration_returns_400(self):
+        """Invalid duration_minutes values return HTTP 400 Bad Request instead of 500."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "invalid_dur_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            for bad_dur in ["abc", "10", "0", "-30", "500", "9999"]:
+                resp = client.get(f"/api/web/availability?duration_minutes={bad_dur}")
+                assert resp.status_code == 400, f"Expected 400 for duration_minutes={bad_dur}, got {resp.status_code}"
+                assert resp.json().get("code") == "INVALID_PARAMS"
+
+    def test_timeline_html_contains_cross_mode_state_invariants(self):
+        """Verify timeline.html contains currentAssetId and cross-mode state verification logic."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "template_check_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            resp = client.get("/timeline")
+
+        assert resp.status_code == 200
+        html = resp.text
+
+        # Global Asset State
+        assert "let currentAssetId = null;" in html
+        # Stale validation in setViewMode
+        assert "currentTimelineData.selected_asset.id) !== currentAssetId" in html
+        assert "currentWhenData.selected_asset.id) !== currentAssetId" in html
+        # onAssetChange updates currentAssetId
+        assert "currentAssetId = Number(assetId);" in html
+        # Dropdown selection matches currentAssetId
+        assert "Number(a.id) === currentAssetId" in html
+

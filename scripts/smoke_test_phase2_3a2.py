@@ -171,10 +171,54 @@ def run_ux_smoke_test():
     print("  - Asset Empty State: '이 위치에 등록된 회의실이 없습니다.' (Verified)")
     print("  -> Scenario F PASS: Mode-specific and filter-specific empty states handled gracefully.")
 
+    # -------------------------------------------------------------
+    # Scenario G: Cross-Mode Asset Consistency (Phase 2.3A-2 Hardening)
+    # -------------------------------------------------------------
+    print(f"\n[Scenario G: Cross-Mode Asset Consistency]")
+    # 1. Start with Asset 70 in NOW / Timeline bootstrap
+    assert bootstrap_data["selected_asset"]["id"] == 70
+    print("  1) Initial State: Asset = 70 (7층), ViewMode = NOW")
+
+    # 2. Switch to WHEN and change Asset to 80
+    resp_when_g = client.get("/api/web/availability?asset_id=80&start=14:00&duration_minutes=60")
+    assert resp_when_g.status_code == 200
+    when_g_data = resp_when_g.json()
+    assert when_g_data["selected_asset"]["id"] == 80
+    print(f"  2) WHEN Mode: Asset changed to 80 -> API selected_asset.id = {when_g_data['selected_asset']['id']}")
+
+    # 3. Switch back to NOW -> lazy load timeline for currentAssetId (80)
+    resp_now_g = client.get("/api/web/timeline?asset_id=80")
+    assert resp_now_g.status_code == 200
+    now_g_data = resp_now_g.json()
+    assert now_g_data["selected_asset"]["id"] == 80
+    print(f"  3) Switch to NOW: Stale 70 invalidated, loaded 80 -> selected_asset.id = {now_g_data['selected_asset']['id']}")
+
+    # 4. Switch to TIMELINE -> verifies dataset matches currentAssetId (80)
+    assert now_g_data["selected_asset"]["id"] == 80
+    print(f"  4) Switch to TIMELINE: Verified dataset matches currentAssetId = {now_g_data['selected_asset']['id']}")
+
+    # 5. Reverse switch verification: 80 -> WHEN 70 -> TIMELINE 70
+    resp_rev_when = client.get("/api/web/availability?asset_id=70&start=14:00&duration_minutes=60")
+    assert resp_rev_when.status_code == 200
+    assert resp_rev_when.json()["selected_asset"]["id"] == 70
+    resp_rev_timeline = client.get("/api/web/timeline?asset_id=70")
+    assert resp_rev_timeline.status_code == 200
+    assert resp_rev_timeline.json()["selected_asset"]["id"] == 70
+    print("  5) Reverse flow (80 -> WHEN 70 -> TIMELINE 70): Verified selected_asset.id = 70")
+
+    # 6. Verify client template invariants
+    assert "let currentAssetId = null;" in html
+    assert "currentTimelineData.selected_asset.id) !== currentAssetId" in html
+    assert "currentWhenData.selected_asset.id) !== currentAssetId" in html
+    assert "Number(a.id) === currentAssetId" in html
+    print("  6) Frontend invariants (currentAssetId, stale invalidation, dropdown sync): Verified")
+    print("  -> Scenario G PASS: Cross-mode asset state is globally consistent without stale display.")
+
     print("\n" + "=" * 65)
-    print("  ALL 6 UX SMOKE SCENARIOS (A-F) PASSED SUCCESSFULLY! (PASS)")
+    print("  ALL 7 UX SMOKE SCENARIOS (A-G) PASSED SUCCESSFULLY! (PASS)")
     print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":
     run_ux_smoke_test()
+

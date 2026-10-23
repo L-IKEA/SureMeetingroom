@@ -407,11 +407,57 @@ def create_app() -> FastAPI:
         asset_id_param = request.query_params.get("asset_id")
         target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
 
-        start_time = request.query_params.get("start") or request.query_params.get("start_time") or "14:00"
-        duration_param = request.query_params.get("duration_minutes") or request.query_params.get("duration")
-        duration = 60
-        if duration_param and duration_param.isdigit():
-            duration = int(duration_param)
+        # Parse and validate start_time
+        has_start_param = "start" in request.query_params or "start_time" in request.query_params
+        start_val = request.query_params.get("start")
+        if start_val is None:
+            start_val = request.query_params.get("start_time")
+
+        if not has_start_param:
+            start_time = "14:00"
+        else:
+            if not start_val:
+                return JSONResponse(
+                    content={"error": "잘못된 시작 시각 형식입니다. (예: 14:00)", "code": "INVALID_PARAMS"},
+                    status_code=400,
+                )
+            try:
+                parts = str(start_val).strip().split(":")
+                if len(parts) != 2:
+                    raise ValueError("start_time must have HH:MM format")
+                sh, sm = int(parts[0]), int(parts[1])
+                if not (0 <= sh <= 23 and 0 <= sm <= 59):
+                    raise ValueError("hour must be 0-23 and minute must be 0-59")
+                start_time = f"{sh:02d}:{sm:02d}"
+            except (ValueError, TypeError, AttributeError):
+                return JSONResponse(
+                    content={"error": "잘못된 시작 시각 형식입니다. (예: 14:00)", "code": "INVALID_PARAMS"},
+                    status_code=400,
+                )
+
+        # Parse and validate duration_minutes
+        has_duration_param = "duration_minutes" in request.query_params or "duration" in request.query_params
+        duration_val = request.query_params.get("duration_minutes")
+        if duration_val is None:
+            duration_val = request.query_params.get("duration")
+
+        if not has_duration_param:
+            duration = 60
+        else:
+            if not duration_val:
+                return JSONResponse(
+                    content={"error": "잘못된 사용 시간입니다. (15분~480분)", "code": "INVALID_PARAMS"},
+                    status_code=400,
+                )
+            try:
+                duration = int(duration_val)
+                if not (15 <= duration <= 480):
+                    raise ValueError("duration must be between 15 and 480 minutes")
+            except (ValueError, TypeError):
+                return JSONResponse(
+                    content={"error": "잘못된 사용 시간입니다. (15분~480분)", "code": "INVALID_PARAMS"},
+                    status_code=400,
+                )
 
         provider = get_provider()
         result = await asyncio.to_thread(

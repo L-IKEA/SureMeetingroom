@@ -1054,6 +1054,7 @@
         // State
         let currentViewMode = 'now'; // 'now' | 'when' | 'timeline'
         let currentFilter = 'all'; // 'all' | 'fav'
+        let currentAssetId = null;
         let currentTimelineData = null;
         let currentWhenData = null;
         let whenStartTime = '14:00';
@@ -1111,6 +1112,14 @@
             }
 
             if (initialData && initialData.rooms) {
+                if (initialData.selected_asset && initialData.selected_asset.id !== undefined) {
+                    currentAssetId = Number(initialData.selected_asset.id);
+                } else if (initialData.assets && initialData.assets.length > 0) {
+                    const sel = initialData.assets.find(a => a.selected) || initialData.assets[0];
+                    currentAssetId = Number(sel.id);
+                } else {
+                    currentAssetId = 70;
+                }
                 renderTimelineData(initialData);
                 // Default mode is NOW
                 setViewMode('now');
@@ -1159,16 +1168,40 @@
             document.getElementById('when-view-container').style.display = (mode === 'when') ? 'block' : 'none';
             document.getElementById('timeline-view-container').style.display = (mode === 'timeline') ? 'block' : 'none';
 
+            // Ensure Asset Dropdown matches global currentAssetId
+            if (assetSelect && currentAssetId !== null && assetSelect.value !== String(currentAssetId)) {
+                assetSelect.value = String(currentAssetId);
+            }
+
             if (mode === 'now') {
-                renderNowView();
+                const isStale = !currentTimelineData ||
+                    !currentTimelineData.selected_asset ||
+                    Number(currentTimelineData.selected_asset.id) !== currentAssetId;
+                if (isStale) {
+                    loadTimelineData(currentAssetId);
+                } else {
+                    renderNowView();
+                }
             } else if (mode === 'when') {
-                if (!currentWhenData) {
-                    loadWhenData();
+                const isStale = !currentWhenData ||
+                    !currentWhenData.selected_asset ||
+                    Number(currentWhenData.selected_asset.id) !== currentAssetId ||
+                    currentWhenData.start_time !== whenStartTime ||
+                    Number(currentWhenData.duration_minutes) !== Number(whenDuration);
+                if (isStale) {
+                    loadWhenData(currentAssetId);
                 } else {
                     renderWhenView();
                 }
             } else if (mode === 'timeline') {
-                renderTimelineTable();
+                const isStale = !currentTimelineData ||
+                    !currentTimelineData.selected_asset ||
+                    Number(currentTimelineData.selected_asset.id) !== currentAssetId;
+                if (isStale) {
+                    loadTimelineData(currentAssetId);
+                } else {
+                    renderTimelineTable();
+                }
             }
         }
 
@@ -1177,10 +1210,17 @@
             hideError();
             showLoading(true);
 
-            let url = '/api/web/timeline';
-            if (assetId !== null) {
-                url += `?asset_id=${encodeURIComponent(assetId)}`;
+            const targetAssetId = assetId !== null 
+                ? Number(assetId) 
+                : (currentAssetId !== null 
+                    ? currentAssetId 
+                    : (assetSelect && assetSelect.value ? Number(assetSelect.value) : 70));
+            currentAssetId = targetAssetId;
+            if (assetSelect && assetSelect.value !== String(currentAssetId)) {
+                assetSelect.value = String(currentAssetId);
             }
+
+            let url = `/api/web/timeline?asset_id=${encodeURIComponent(targetAssetId)}`;
 
             try {
                 const response = await fetch(url, {
@@ -1202,7 +1242,14 @@
 
                 const data = await response.json();
                 currentTimelineData = data;
-                currentWhenData = null; // Invalidate cached WHEN data on asset switch
+                if (data.selected_asset && data.selected_asset.id !== undefined) {
+                    currentAssetId = Number(data.selected_asset.id);
+                }
+                // Invalidate cached WHEN data if it was for a different asset
+                if (currentWhenData && currentWhenData.selected_asset && Number(currentWhenData.selected_asset.id) !== currentAssetId) {
+                    currentWhenData = null;
+                }
+
                 renderTimelineData(data);
 
                 if (currentViewMode === 'now') {
@@ -1210,7 +1257,7 @@
                 } else if (currentViewMode === 'timeline') {
                     renderTimelineTable();
                 } else if (currentViewMode === 'when') {
-                    loadWhenData(assetId);
+                    loadWhenData(currentAssetId);
                 }
             } catch (err) {
                 console.error('Fetch timeline error', err);
@@ -1225,7 +1272,16 @@
             hideError();
             showLoading(true);
 
-            const targetAssetId = assetId !== null ? assetId : (assetSelect.value || currentTimelineData?.selected_asset?.id || 70);
+            const targetAssetId = assetId !== null 
+                ? Number(assetId) 
+                : (currentAssetId !== null 
+                    ? currentAssetId 
+                    : (assetSelect && assetSelect.value ? Number(assetSelect.value) : 70));
+            currentAssetId = targetAssetId;
+            if (assetSelect && assetSelect.value !== String(currentAssetId)) {
+                assetSelect.value = String(currentAssetId);
+            }
+
             const url = `/api/web/availability?asset_id=${encodeURIComponent(targetAssetId)}&start=${encodeURIComponent(whenStartTime)}&duration_minutes=${encodeURIComponent(whenDuration)}`;
 
             try {
@@ -1248,10 +1304,19 @@
 
                 const data = await response.json();
                 currentWhenData = data;
+                if (data.selected_asset && data.selected_asset.id !== undefined) {
+                    currentAssetId = Number(data.selected_asset.id);
+                }
+                // Invalidate cached TIMELINE data if it was for a different asset
+                if (currentTimelineData && currentTimelineData.selected_asset && Number(currentTimelineData.selected_asset.id) !== currentAssetId) {
+                    currentTimelineData = null;
+                }
 
-                // Sync asset dropdown if needed
-                if (Array.isArray(data.assets) && data.assets.length > 0 && assetSelect.children.length <= 1) {
+                // Sync asset dropdown
+                if (Array.isArray(data.assets) && data.assets.length > 0) {
                     syncAssetDropdown(data.assets);
+                } else if (assetSelect && currentAssetId !== null) {
+                    assetSelect.value = String(currentAssetId);
                 }
 
                 renderWhenView();
@@ -1265,14 +1330,26 @@
 
         // Sync Asset Dropdown helper
         function syncAssetDropdown(assets) {
-            assetSelect.innerHTML = assets.map(a => 
-                `<option value="${a.id}" ${a.selected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`
-            ).join('');
+            if (!assets || !Array.isArray(assets) || assets.length === 0) return;
+            assetSelect.innerHTML = assets.map(a => {
+                const isSelected = (currentAssetId !== null) 
+                    ? (Number(a.id) === currentAssetId)
+                    : Boolean(a.selected);
+                return `<option value="${a.id}" ${isSelected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`;
+            }).join('');
+            if (currentAssetId !== null) {
+                assetSelect.value = String(currentAssetId);
+            } else if (assetSelect.value) {
+                currentAssetId = Number(assetSelect.value);
+            }
         }
 
         // Process Timeline Data Structure
         function renderTimelineData(data) {
             currentTimelineData = data;
+            if (data.selected_asset && data.selected_asset.id !== undefined) {
+                currentAssetId = Number(data.selected_asset.id);
+            }
 
             // 1. Date Header
             if (data.date_display) {
@@ -1282,13 +1359,17 @@
             // 2. Floor Selector Options
             if (Array.isArray(data.assets) && data.assets.length > 0) {
                 syncAssetDropdown(data.assets);
+            } else if (assetSelect && currentAssetId !== null) {
+                assetSelect.value = String(currentAssetId);
             }
 
             // 3. Hours Axis Header (for TIMELINE)
             renderHoursHeader(data.start_hour || 8, data.end_hour || 20);
 
-            // 4. Pre-render timeline table
-            renderTimelineTable();
+            // 4. Pre-render timeline table if in timeline mode
+            if (currentViewMode === 'timeline') {
+                renderTimelineTable();
+            }
         }
 
         // A. Render NOW View Cards
@@ -1565,10 +1646,15 @@
         // Change Floor / Asset Handler
         function onAssetChange(assetId) {
             if (!assetId) return;
+            currentAssetId = Number(assetId);
+            assetSelect.value = String(currentAssetId);
+
             if (currentViewMode === 'when') {
-                loadWhenData(assetId);
+                currentTimelineData = null; // Invalidate stale timeline data
+                loadWhenData(currentAssetId);
             } else {
-                loadTimelineData(assetId);
+                currentWhenData = null; // Invalidate stale when data
+                loadTimelineData(currentAssetId);
             }
         }
 
@@ -1591,7 +1677,7 @@
         function onWhenConditionChange() {
             const select = document.getElementById('when-start-time');
             whenStartTime = select.value;
-            loadWhenData();
+            loadWhenData(currentAssetId);
         }
 
         function setWhenDuration(duration) {
@@ -1599,7 +1685,7 @@
             document.querySelectorAll('.duration-pill-btn').forEach(btn => {
                 btn.classList.toggle('active', parseInt(btn.getAttribute('data-duration')) === duration);
             });
-            loadWhenData();
+            loadWhenData(currentAssetId);
         }
 
         // Update Counter Chip
@@ -1620,9 +1706,9 @@
         // Retry handler
         function retryActiveQuery() {
             if (currentViewMode === 'when') {
-                loadWhenData();
+                loadWhenData(currentAssetId);
             } else {
-                loadTimelineData();
+                loadTimelineData(currentAssetId);
             }
         }
 
