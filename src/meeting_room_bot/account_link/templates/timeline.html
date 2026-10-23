@@ -1061,6 +1061,13 @@
         let whenDuration = 60;
         let isFetching = false;
 
+        // Async Request Race Protection & Abort Management
+        let timelineRequestSeq = 0;
+        let whenRequestSeq = 0;
+        let timelineAbortController = null;
+        let whenAbortController = null;
+        let activeRequestsCount = 0;
+
         // DOM Elements
         const assetSelect = document.getElementById('asset-select');
         const dateDisplay = document.getElementById('date-display');
@@ -1220,14 +1227,29 @@
                 assetSelect.value = String(currentAssetId);
             }
 
+            // Abort prior in-flight timeline request and increment sequence
+            if (timelineAbortController) {
+                try { timelineAbortController.abort(); } catch (e) {}
+            }
+            timelineAbortController = new AbortController();
+            const currentController = timelineAbortController;
+            const requestSeq = ++timelineRequestSeq;
+            const requestedAssetId = targetAssetId;
+
             let url = `/api/web/timeline?asset_id=${encodeURIComponent(targetAssetId)}`;
 
             try {
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' },
-                    credentials: 'same-origin'
+                    credentials: 'same-origin',
+                    signal: currentController.signal
                 });
+
+                // Drop stale response if superseded by a newer request or asset change
+                if (requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId) {
+                    return;
+                }
 
                 if (response.status === 401) {
                     window.location.reload();
@@ -1236,11 +1258,18 @@
 
                 if (!response.ok) {
                     const errData = await response.json().catch(() => ({}));
+                    if (requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId) return;
                     showError(errData.error || '회의실 정보를 불러오지 못했습니다.');
                     return;
                 }
 
                 const data = await response.json();
+
+                // Double check after JSON parsing
+                if (requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId) {
+                    return;
+                }
+
                 currentTimelineData = data;
                 if (data.selected_asset && data.selected_asset.id !== undefined) {
                     currentAssetId = Number(data.selected_asset.id);
@@ -1252,14 +1281,19 @@
 
                 renderTimelineData(data);
 
+                // Render current active view; do not trigger extraneous fetches on mode race
                 if (currentViewMode === 'now') {
                     renderNowView();
                 } else if (currentViewMode === 'timeline') {
                     renderTimelineTable();
-                } else if (currentViewMode === 'when') {
-                    loadWhenData(currentAssetId);
                 }
             } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    return; // Aborted by newer request, silently exit
+                }
+                if (requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId) {
+                    return; // Stale error, silently exit
+                }
                 console.error('Fetch timeline error', err);
                 showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
             } finally {
@@ -1282,14 +1316,36 @@
                 assetSelect.value = String(currentAssetId);
             }
 
+            // Abort prior in-flight when request and increment sequence
+            if (whenAbortController) {
+                try { whenAbortController.abort(); } catch (e) {}
+            }
+            whenAbortController = new AbortController();
+            const currentController = whenAbortController;
+            const requestSeq = ++whenRequestSeq;
+            const requestedAssetId = targetAssetId;
+            const requestedStartTime = whenStartTime;
+            const requestedDuration = whenDuration;
+
             const url = `/api/web/availability?asset_id=${encodeURIComponent(targetAssetId)}&start=${encodeURIComponent(whenStartTime)}&duration_minutes=${encodeURIComponent(whenDuration)}`;
 
             try {
                 const response = await fetch(url, {
                     method: 'GET',
                     headers: { 'Accept': 'application/json' },
-                    credentials: 'same-origin'
+                    credentials: 'same-origin',
+                    signal: currentController.signal
                 });
+
+                // Drop stale response if superseded by newer request or condition/asset change
+                if (
+                    requestSeq !== whenRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedStartTime !== whenStartTime ||
+                    requestedDuration !== whenDuration
+                ) {
+                    return;
+                }
 
                 if (response.status === 401) {
                     window.location.reload();
@@ -1298,11 +1354,28 @@
 
                 if (!response.ok) {
                     const errData = await response.json().catch(() => ({}));
+                    if (
+                        requestSeq !== whenRequestSeq ||
+                        requestedAssetId !== currentAssetId ||
+                        requestedStartTime !== whenStartTime ||
+                        requestedDuration !== whenDuration
+                    ) return;
                     showError(errData.error || '회의실 가용성 정보를 불러오지 못했습니다.');
                     return;
                 }
 
                 const data = await response.json();
+
+                // Double check after JSON parsing
+                if (
+                    requestSeq !== whenRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedStartTime !== whenStartTime ||
+                    requestedDuration !== whenDuration
+                ) {
+                    return;
+                }
+
                 currentWhenData = data;
                 if (data.selected_asset && data.selected_asset.id !== undefined) {
                     currentAssetId = Number(data.selected_asset.id);
@@ -1319,8 +1392,22 @@
                     assetSelect.value = String(currentAssetId);
                 }
 
-                renderWhenView();
+                // Render view only if still in when mode
+                if (currentViewMode === 'when') {
+                    renderWhenView();
+                }
             } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    return; // Aborted by newer request, silently exit
+                }
+                if (
+                    requestSeq !== whenRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedStartTime !== whenStartTime ||
+                    requestedDuration !== whenDuration
+                ) {
+                    return; // Stale error, silently exit
+                }
                 console.error('Fetch availability error', err);
                 showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
             } finally {
@@ -1699,8 +1786,21 @@
 
         // Loading Indicator helper
         function showLoading(isLoading) {
-            isFetching = isLoading;
-            loadingSpinner.style.display = isLoading ? 'inline-block' : 'none';
+            if (isLoading) {
+                activeRequestsCount++;
+                isFetching = true;
+                if (loadingSpinner) {
+                    loadingSpinner.style.display = 'inline-block';
+                }
+            } else {
+                activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+                if (activeRequestsCount === 0) {
+                    isFetching = false;
+                    if (loadingSpinner) {
+                        loadingSpinner.style.display = 'none';
+                    }
+                }
+            }
         }
 
         // Retry handler

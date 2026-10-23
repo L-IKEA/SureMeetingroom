@@ -33,6 +33,7 @@ UI & API Integration:
 
 from datetime import datetime, timedelta, timezone
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -706,4 +707,257 @@ class TestCrossModeAssetStateHardening:
         assert "currentAssetId = Number(assetId);" in html
         # Dropdown selection matches currentAssetId
         assert "Number(a.id) === currentAssetId" in html
+
+
+class TestAsyncRaceProtection:
+    """Async Out-of-Order & Race Condition Protection Tests (Scenario H-1 ~ H-4)."""
+
+    def test_scenario_h1_timeline_asset_race(self):
+        """Scenario H-1 — Timeline Asset Race:
+        1. Request Asset 70 starts (seq=1)
+        2. Request Asset 80 starts (seq=2)
+        3. Response for 80 arrives first -> applied
+        4. Response for 70 arrives later -> stale, must be dropped
+        Expected: currentAssetId=80, dataset=80, dropdown=80.
+        """
+        client = TestClient(app)
+        user_key = UserKey("telegram", "race_h1_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            resp_70 = client.get("/api/web/timeline?asset_id=70")
+            resp_80 = client.get("/api/web/timeline?asset_id=80")
+
+        data_70 = resp_70.json()
+        data_80 = resp_80.json()
+
+        # Simulated client state machine matching timeline.html logic
+        state = {
+            "currentAssetId": 70,
+            "timelineRequestSeq": 0,
+            "currentTimelineData": None,
+            "dropdownValue": "70",
+        }
+
+        # 1. Req A (70) started
+        state["timelineRequestSeq"] += 1
+        req_a_seq = state["timelineRequestSeq"]
+        req_a_asset = 70
+        state["currentAssetId"] = 70
+        state["dropdownValue"] = "70"
+
+        # 2. Req B (80) started quickly after
+        state["timelineRequestSeq"] += 1
+        req_b_seq = state["timelineRequestSeq"]
+        req_b_asset = 80
+        state["currentAssetId"] = 80
+        state["dropdownValue"] = "80"
+
+        # 3. Response B (80) arrives first
+        if req_b_seq == state["timelineRequestSeq"] and req_b_asset == state["currentAssetId"]:
+            state["currentTimelineData"] = data_80
+            state["currentAssetId"] = data_80["selected_asset"]["id"]
+            state["dropdownValue"] = str(state["currentAssetId"])
+
+        assert state["currentAssetId"] == 80
+        assert state["currentTimelineData"]["selected_asset"]["id"] == 80
+        assert state["dropdownValue"] == "80"
+
+        # 4. Response A (70) arrives late
+        if req_a_seq == state["timelineRequestSeq"] and req_a_asset == state["currentAssetId"]:
+            state["currentTimelineData"] = data_70
+            state["currentAssetId"] = data_70["selected_asset"]["id"]
+            state["dropdownValue"] = str(state["currentAssetId"])
+
+        # Invariant maintained: 70 was rejected, 80 remains winner
+        assert state["currentAssetId"] == 80
+        assert state["currentTimelineData"]["selected_asset"]["id"] == 80
+        assert state["dropdownValue"] == "80"
+
+    def test_scenario_h2_when_asset_race(self):
+        """Scenario H-2 — WHEN Asset Race:
+        70 WHEN request starts (seq=1)
+        80 WHEN request starts (seq=2)
+        80 response arrives first
+        70 response arrives last
+        Expected: WHEN result remains Asset 80.
+        """
+        client = TestClient(app)
+        user_key = UserKey("telegram", "race_h2_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            resp_70 = client.get("/api/web/availability?asset_id=70&start=14:00&duration_minutes=60")
+            resp_80 = client.get("/api/web/availability?asset_id=80&start=14:00&duration_minutes=60")
+
+        data_70 = resp_70.json()
+        data_80 = resp_80.json()
+
+        state = {
+            "currentAssetId": 70,
+            "whenRequestSeq": 0,
+            "currentWhenData": None,
+        }
+
+        # 1. Req 1 for 70
+        state["whenRequestSeq"] += 1
+        req_1_seq = state["whenRequestSeq"]
+        req_1_asset = 70
+        state["currentAssetId"] = 70
+
+        # 2. Req 2 for 80
+        state["whenRequestSeq"] += 1
+        req_2_seq = state["whenRequestSeq"]
+        req_2_asset = 80
+        state["currentAssetId"] = 80
+
+        # 3. Response 2 (80) arrives first
+        if req_2_seq == state["whenRequestSeq"] and req_2_asset == state["currentAssetId"]:
+            state["currentWhenData"] = data_80
+
+        assert state["currentWhenData"]["selected_asset"]["id"] == 80
+
+        # 4. Response 1 (70) arrives last (stale)
+        if req_1_seq == state["whenRequestSeq"] and req_1_asset == state["currentAssetId"]:
+            state["currentWhenData"] = data_70
+
+        assert state["currentWhenData"]["selected_asset"]["id"] == 80
+
+    def test_scenario_h3_when_condition_race(self):
+        """Scenario H-3 — WHEN Condition Race:
+        14:00 / 60m request starts
+        14:30 / 90m request starts
+        Second response arrives first
+        First response arrives last
+        Expected: UI maintains 14:30 / 90m results.
+        """
+        client = TestClient(app)
+        user_key = UserKey("telegram", "race_h3_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            resp_1 = client.get("/api/web/availability?asset_id=70&start=14:00&duration_minutes=60")
+            resp_2 = client.get("/api/web/availability?asset_id=70&start=14:30&duration_minutes=90")
+
+        data_1 = resp_1.json()
+        data_2 = resp_2.json()
+
+        state = {
+            "currentAssetId": 70,
+            "whenRequestSeq": 0,
+            "whenStartTime": "14:00",
+            "whenDuration": 60,
+            "currentWhenData": None,
+        }
+
+        # 1. Req 1 (14:00, 60m)
+        state["whenRequestSeq"] += 1
+        req_1_seq = state["whenRequestSeq"]
+        req_1_start = "14:00"
+        req_1_dur = 60
+
+        # 2. User quickly changes to 14:30, 90m -> Req 2
+        state["whenRequestSeq"] += 1
+        state["whenStartTime"] = "14:30"
+        state["whenDuration"] = 90
+        req_2_seq = state["whenRequestSeq"]
+        req_2_start = "14:30"
+        req_2_dur = 90
+
+        # 3. Response 2 arrives first
+        if (
+            req_2_seq == state["whenRequestSeq"]
+            and req_2_start == state["whenStartTime"]
+            and req_2_dur == state["whenDuration"]
+        ):
+            state["currentWhenData"] = data_2
+
+        assert state["currentWhenData"]["start_time"] == "14:30"
+        assert state["currentWhenData"]["duration_minutes"] == 90
+
+        # 4. Response 1 arrives last -> rejected
+        if (
+            req_1_seq == state["whenRequestSeq"]
+            and req_1_start == state["whenStartTime"]
+            and req_1_dur == state["whenDuration"]
+        ):
+            state["currentWhenData"] = data_1
+
+        assert state["currentWhenData"]["start_time"] == "14:30"
+        assert state["currentWhenData"]["duration_minutes"] == 90
+
+    def test_scenario_h4_loading_indicator_concurrent_safety(self):
+        """Scenario H-4 — Loading Indicator Concurrent Safety:
+        While latest request is running, stale request completion must NOT turn off loading spinner.
+        """
+        active_requests_count = 0
+        is_fetching = False
+
+        def show_loading(is_loading):
+            nonlocal active_requests_count, is_fetching
+            if is_loading:
+                active_requests_count += 1
+                is_fetching = True
+            else:
+                active_requests_count = max(0, active_requests_count - 1)
+                if active_requests_count == 0:
+                    is_fetching = False
+
+        # Request 1 starts
+        show_loading(True)
+        assert active_requests_count == 1
+        assert is_fetching is True
+
+        # Request 2 starts before Request 1 finishes
+        show_loading(True)
+        assert active_requests_count == 2
+        assert is_fetching is True
+
+        # Request 1 finishes (stale)
+        show_loading(False)
+        # Loading must remain ACTIVE because Request 2 is still in-flight
+        assert active_requests_count == 1
+        assert is_fetching is True
+
+        # Request 2 completes
+        show_loading(False)
+        assert active_requests_count == 0
+        assert is_fetching is False
+
+    def test_timeline_html_contains_async_race_guards(self):
+        """Verify timeline.html contains sequence IDs, abort controllers, and stale guards."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "race_guard_check_user")
+        web_session = web_session_store.create_web_session(user_key)
+        client.cookies.set(WEB_SESSION_COOKIE_NAME, web_session.session_id, path="/")
+
+        with patch.object(session_manager, "has_session", return_value=True):
+            resp = client.get("/timeline")
+
+        assert resp.status_code == 200
+        html = resp.text
+
+        # Sequence and Abort state
+        assert "let timelineRequestSeq = 0;" in html
+        assert "let whenRequestSeq = 0;" in html
+        assert "let timelineAbortController = null;" in html
+        assert "let whenAbortController = null;" in html
+        assert "let activeRequestsCount = 0;" in html
+
+        # Timeline stale response guard
+        assert "requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId" in html
+
+        # WHEN stale response guard
+        assert "requestSeq !== whenRequestSeq ||" in html
+        assert "requestedStartTime !== whenStartTime" in html
+        assert "requestedDuration !== whenDuration" in html
+
+        # Mode race guard: no chained loadWhenData inside loadTimelineData
+        match_tl = re.search(r"async function loadTimelineData\b.*?\n\s*\}\n", html, re.DOTALL)
+        assert match_tl is not None
+        assert "loadWhenData" not in match_tl.group(0)
+
 

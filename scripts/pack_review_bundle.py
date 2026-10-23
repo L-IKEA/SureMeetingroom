@@ -10,11 +10,11 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_3a2_state_hardening"
+HISTORY_SUBDIR = "v0.2_phase2_3a2_async_hardening"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a2_state_hardening_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a2_async_hardening_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "c41e7826f09e28ea52f4ed13e7a359f659c68b72"
+TASK_BASE_COMMIT = "7e7a7698f1c3139872cf585629aacf235df91b49"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
@@ -256,7 +256,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A-2 State Hardening (Cross-Mode Asset Consistency)
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A-2 Async Hardening (Stale-Response & Out-of-Order Race Protection)
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -273,59 +273,74 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A-2 State Hardening (Cross-Mode Asset Consistency & API Validation)** prior to any GitHub push or Telegram Mini App coupling.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A-2 Async Hardening (Stale-Response & Out-of-Order Race Protection)** prior to any GitHub push or Telegram Mini App coupling.
 
 ### Scope & Hardening Goals:
-- **Cross-Mode Asset State Consistency**: Asset is managed as a Web App global state (`currentAssetId`) independent of ViewMode. Maintains the strict invariant:
-  `Number(assetSelect.value) == currentAssetId == currently rendered dataset.selected_asset.id`
-- **Stale Dataset Invalidation & Lazy Fetch**:
-  - Changing floor in WHEN mode marks `currentTimelineData = null` and loads availability for `currentAssetId`.
-  - Switching to NOW or TIMELINE verifies whether cached dataset matches `currentAssetId`; if stale or missing, lazily calls `loadTimelineData(currentAssetId)`.
-  - Switching to WHEN verifies whether cached dataset matches `currentAssetId`, `whenStartTime`, and `whenDuration`; if stale or missing, lazily calls `loadWhenData(currentAssetId)`.
-  - Eliminates stale data re-display while minimizing redundant Groupware API requests.
-- **Dropdown Invariant**: `syncAssetDropdown` and `setViewMode` explicitly bind and synchronize `assetSelect.value = String(currentAssetId)` and `<option ... selected>`.
-- **State Persistence**:
-  - `currentFilter` (`'all'` vs `'fav'`): ViewMode or Asset changes do not reset user's filter.
-  - `whenStartTime` & `whenDuration`: Conditions persist across asset changes and mode transitions.
-- **Query Parameter Validation**: `GET /api/web/availability` validates `start` (`HH:MM`) and `duration_minutes` (`15`~`480`), returning `HTTP 400 Bad Request` (`code: INVALID_PARAMS`) on malformed inputs, eliminating 500 errors.
+- **"Last user intent wins" principle**: Rapid user asset/mode/condition selections trigger multiple asynchronous requests. Faster responses must never overwrite newer user choices when earlier requests resolve out-of-order.
+- **Request Generation / Sequence IDs**:
+  - `timelineRequestSeq`: Monotonically incrementing counter for timeline fetches.
+  - `whenRequestSeq`: Monotonically incrementing counter for availability fetches.
+  - Paired with `AbortController` (`timelineAbortController`, `whenAbortController`) to immediately abort pending in-flight requests of the same type upon new user selection.
+- **Timeline Stale Guard Invariant**:
+  - Drops response before state mutation or rendering if `requestSeq !== timelineRequestSeq` or `requestedAssetId !== currentAssetId`.
+  - Stale responses are prevented from mutating `currentAssetId`, `currentTimelineData`, dropdown selection, rendering views, or executing chained calls.
+- **WHEN Stale Guard Invariant**:
+  - Drops response before state mutation or rendering if any condition fails:
+    `requestSeq === whenRequestSeq` AND
+    `requestedAssetId === currentAssetId` AND
+    `requestedStartTime === whenStartTime` AND
+    `requestedDuration === whenDuration`.
+- **Mode Race Isolation**:
+  - Removed implicit chained `loadWhenData()` invocation from `loadTimelineData()`.
+  - Views only re-render if current active view mode matches the response type.
+- **Loading Indicator Concurrency Safety**:
+  - `activeRequestsCount` reference counter tracks concurrent asynchronous tasks.
+  - Spinner hides ONLY when `activeRequestsCount === 0`, ensuring a completing stale request cannot prematurely hide the spinner while a newer request is still in-flight.
 - **Strict Prohibition**: `git push` was NOT executed.
 
 ---
 
 ## 3. Key Implementations
 
-### 1) Global `currentAssetId` and Stale Invalidation
-- Added `let currentAssetId = null;` to client-side state in `timeline.html`.
-- Initialized from server-bootstrapped `initialData.selected_asset.id` or asset fallback.
-- In `onAssetChange`: updates `currentAssetId = Number(assetId);` and invalidates the alternative mode's cached dataset.
-- In `setViewMode`: inspects whether cached dataset belongs to `currentAssetId` (and matches WHEN conditions). If stale, calls `loadTimelineData` or `loadWhenData` lazily.
-- Pre-rendering of timeline table in `renderTimelineData` restricted to `currentViewMode === 'timeline'` to prevent counter flickering.
+### 1) Asynchronous Request Sequencing & Abort Controller (`timeline.html`)
+- Added `timelineRequestSeq = 0`, `whenRequestSeq = 0`, `timelineAbortController = null`, `whenAbortController = null`, and `activeRequestsCount = 0`.
+- In `loadTimelineData(assetId)`:
+  - Aborts existing in-flight controller: `timelineAbortController.abort()`.
+  - Increments `requestSeq = ++timelineRequestSeq` and snapshots `requestedAssetId = targetAssetId`.
+  - Passes `signal: currentController.signal` into `fetch()`.
+  - Validates sequence and asset ID both before and after JSON parsing.
+  - Silently handles `AbortError`.
+- In `loadWhenData(assetId)`:
+  - Aborts existing in-flight controller: `whenAbortController.abort()`.
+  - Increments `requestSeq = ++whenRequestSeq` and snapshots `requestedAssetId`, `requestedStartTime`, `requestedDuration`.
+  - Passes `signal: currentController.signal` into `fetch()`.
+  - Validates sequence, asset ID, start time, and duration both before and after JSON parsing.
+  - Silently handles `AbortError`.
 
-### 2) API Validation Hardening (`GET /api/web/availability`)
-- Validates `start` / `start_time` strictly as `HH:MM` format (`00:00`~`23:59`).
-- Validates `duration_minutes` / `duration` strictly as integer between `15` and `480` minutes.
-- Returns `HTTP 400` with `{{"error": ..., "code": "INVALID_PARAMS"}}` on malformed/out-of-range values.
+### 2) Concurrency-Safe Loading Indicator (`showLoading`)
+- Increments `activeRequestsCount` on `showLoading(true)`.
+- Decrements `activeRequestsCount` (floor 0) on `showLoading(false)`.
+- Toggles DOM spinner/overlay only when counter transitions between 0 and >0.
 
-### 3) Core UX & Security Preserved
+### 3) Core Invariants & State Hardening Preserved
+- 100% preservation of Phase 2.3A-2 cross-mode asset consistency and dropdown synchronization.
 - 100% preservation of NOW, WHEN, and TIMELINE core capabilities.
-- 100% preservation of Jinja2 `tojson` safe JSON injection (zero XSS).
+- 100% preservation of Jinja2 safe `tojson` injection (zero XSS).
 - 100% platform independence (0 Telegram.WebApp dependencies).
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Task Base Commit `c41e7826...`)**: 290 passed.
-- **New Regression Tests Added**: 7 passed in `TestCrossModeAssetStateHardening` (`tests/test_phase2_3a2_web_ux.py`):
-  1. `test_cross_mode_asset_consistency_scenario_g`: 70 -> NOW -> WHEN -> select 80 -> NOW -> TIMELINE verifies `selected_asset.id == 80`.
-  2. `test_cross_mode_asset_consistency_reverse_flow`: 80 -> WHEN -> select 70 -> TIMELINE verifies `selected_asset.id == 70`.
-  3. `test_favorites_preserved_across_mode_and_asset_switches`: Favorites state preserved across modes and assets.
-  4. `test_when_conditions_preserved_across_asset_switch`: 16:30 / 90min preserved across asset switches.
-  5. `test_invalid_availability_start_time_returns_400`: Malformed start times safely return 400.
-  6. `test_invalid_availability_duration_returns_400`: Out-of-bounds durations safely return 400.
-  7. `test_timeline_html_contains_cross_mode_state_invariants`: Frontend state invariants verified.
-- **Full Pytest Suite**: 297 passed, 0 failed, 0 skipped.
+- **Baseline Tests (Task Base Commit `7e7a7698...`)**: 297 passed.
+- **New Regression Tests Added**: 5 passed in `TestAsyncRaceProtection` (`tests/test_phase2_3a2_web_ux.py`):
+  1. `test_scenario_h1_timeline_asset_race`: Asset 70 -> 80 rapid switch; out-of-order delivery preserves Asset 80 as final state.
+  2. `test_scenario_h2_when_asset_race`: WHEN 70 -> 80 rapid switch; out-of-order delivery preserves Asset 80 as final state.
+  3. `test_scenario_h3_when_condition_race`: WHEN 14:00/60m -> 14:30/90m rapid change; stale condition response dropped.
+  4. `test_scenario_h4_loading_indicator_concurrent_safety`: Stale request termination does not prematurely clear loading indicator while newer request is active.
+  5. `test_timeline_html_contains_async_race_guards`: Verifies sequence IDs, abort controllers, invariant guards, and activeRequestsCount in template.
+- **Full Pytest Suite**: 302 passed, 0 failed, 0 skipped.
 - **Execution Time**: ~5.6s.
-- **End-to-End UX Smoke Test**: `scripts/smoke_test_phase2_3a2.py` PASSED all 7 scenarios (A~G), including Scenario G Cross-Mode Asset Consistency.
+- **End-to-End UX Smoke Test**: `scripts/smoke_test_phase2_3a2.py` PASSED all 8 scenarios (A~H), including Scenario H (H-1 to H-5).
 - **Standalone Review Bundle Self-Test**: Extracted zip executed cleanly with 100% test pass across all bundled test suites.
 
 ---

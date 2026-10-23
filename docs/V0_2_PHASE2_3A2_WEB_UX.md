@@ -81,6 +81,23 @@ Number(assetSelect.value) == currentAssetId == currently rendered dataset.select
    - `currentFilter` (`'all'` vs `'fav'`): ViewMode나 Asset이 변경되어도 리셋되지 않고 유지.
    - `whenStartTime` 및 `whenDuration`: Asset 변경 후에도 선택한 시각 및 사용 시간 조건 유지.
 
+### 4.2 비동기 요청 Out-of-Order Race 및 Stale Response 방어 (Last Intent Wins)
+
+빠른 층 전환이나 시간/사용시간 조건 변경 시 이전 비동기 요청의 응답이 나중에 도착하여 최신 사용자 선택을 덮어쓰는 Race Condition을 완벽히 방지합니다:
+
+1. **Request Generation & Sequence ID (`timelineRequestSeq`, `whenRequestSeq`)**:
+   - 요청마다 고유 시퀀스 번호를 증가시키고, 응답 수신 시 `requestSeq === currentSeq`를 검증하여 오래된 응답은 즉시 drop.
+2. **AbortController 연동**:
+   - 새 요청 발생 시 이전 in-flight fetch의 `AbortController.abort()`를 즉시 호출하여 불필요한 네트워크 I/O 및 파싱 비용 절감.
+3. **엄격한 Invariant 검증**:
+   - Timeline 응답: `requestedAssetId === currentAssetId` 및 `requestSeq === timelineRequestSeq` 확인.
+   - WHEN 응답: `requestedAssetId === currentAssetId`, `requestedStartTime === whenStartTime`, `requestedDuration === whenDuration`, `requestSeq === whenRequestSeq` 확인.
+   - 불일치 시 `currentTimelineData`, `currentWhenData`, `currentAssetId`, Dropdown, 렌더 함수, 에러 배너를 일체 수정하지 않고 drop.
+4. **모드 전환 경합 격리**:
+   - Timeline 요청 완료 시 사용자가 이미 WHEN 모드로 전환한 경우, 불필요한 NOW/TIMELINE 렌더나 연쇄적인 `loadWhenData()` 호출을 수행하지 않음.
+5. **Loading Indicator 동시성 안전성 (`activeRequestsCount`)**:
+   - `showLoading(isLoading)`은 활성 요청 카운터(`activeRequestsCount`)를 증감 관리하여, 뒤늦게 끝난 stale 요청이 최신 요청 진행 중에 로딩 스피너를 꺼버리지 않도록 보장.
+
 ---
 
 ## 5. Favorites Scope의 일관된 적용

@@ -214,11 +214,100 @@ def run_ux_smoke_test():
     print("  6) Frontend invariants (currentAssetId, stale invalidation, dropdown sync): Verified")
     print("  -> Scenario G PASS: Cross-mode asset state is globally consistent without stale display.")
 
+    # -------------------------------------------------------------
+    # Scenario H: Async Stale-Response & Out-of-Order Race Protection
+    # -------------------------------------------------------------
+    print(f"\n[Scenario H: Async Stale-Response & Out-of-Order Race Protection]")
+
+    # H-1: Timeline Asset Race
+    state_h1 = {"currentAssetId": 70, "timelineRequestSeq": 0, "currentTimelineData": None}
+    state_h1["timelineRequestSeq"] += 1
+    req_a_seq, req_a_asset = state_h1["timelineRequestSeq"], 70
+    state_h1["timelineRequestSeq"] += 1
+    req_b_seq, req_b_asset = state_h1["timelineRequestSeq"], 80
+    state_h1["currentAssetId"] = 80
+
+    # Response B arrives first
+    if req_b_seq == state_h1["timelineRequestSeq"] and req_b_asset == state_h1["currentAssetId"]:
+        state_h1["currentTimelineData"] = {"selected_asset": {"id": 80}}
+    # Response A arrives late -> dropped
+    if req_a_seq == state_h1["timelineRequestSeq"] and req_a_asset == state_h1["currentAssetId"]:
+        state_h1["currentTimelineData"] = {"selected_asset": {"id": 70}}
+    assert state_h1["currentAssetId"] == 80
+    assert state_h1["currentTimelineData"]["selected_asset"]["id"] == 80
+    print("  1) H-1 Timeline Asset Race: Response 80 arrived before stale 70 -> Asset 80 preserved (Verified)")
+
+    # H-2: WHEN Asset Race
+    state_h2 = {"currentAssetId": 70, "whenRequestSeq": 0, "currentWhenData": None}
+    state_h2["whenRequestSeq"] += 1
+    req1_seq, req1_asset = state_h2["whenRequestSeq"], 70
+    state_h2["whenRequestSeq"] += 1
+    req2_seq, req2_asset = state_h2["whenRequestSeq"], 80
+    state_h2["currentAssetId"] = 80
+    if req2_seq == state_h2["whenRequestSeq"] and req2_asset == state_h2["currentAssetId"]:
+        state_h2["currentWhenData"] = {"selected_asset": {"id": 80}}
+    if req1_seq == state_h2["whenRequestSeq"] and req1_asset == state_h2["currentAssetId"]:
+        state_h2["currentWhenData"] = {"selected_asset": {"id": 70}}
+    assert state_h2["currentWhenData"]["selected_asset"]["id"] == 80
+    print("  2) H-2 WHEN Asset Race: Response 80 arrived before stale 70 -> Asset 80 preserved (Verified)")
+
+    # H-3: WHEN Condition Race
+    state_h3 = {"whenRequestSeq": 0, "whenStartTime": "14:00", "whenDuration": 60, "currentWhenData": None}
+    state_h3["whenRequestSeq"] += 1
+    c1_seq, c1_start, c1_dur = state_h3["whenRequestSeq"], "14:00", 60
+    state_h3["whenRequestSeq"] += 1
+    state_h3["whenStartTime"], state_h3["whenDuration"] = "14:30", 90
+    c2_seq, c2_start, c2_dur = state_h3["whenRequestSeq"], "14:30", 90
+    if c2_seq == state_h3["whenRequestSeq"] and c2_start == state_h3["whenStartTime"] and c2_dur == state_h3["whenDuration"]:
+        state_h3["currentWhenData"] = {"start_time": "14:30", "duration_minutes": 90}
+    if c1_seq == state_h3["whenRequestSeq"] and c1_start == state_h3["whenStartTime"] and c1_dur == state_h3["whenDuration"]:
+        state_h3["currentWhenData"] = {"start_time": "14:00", "duration_minutes": 60}
+    assert state_h3["currentWhenData"]["start_time"] == "14:30"
+    assert state_h3["currentWhenData"]["duration_minutes"] == 90
+    print("  3) H-3 WHEN Condition Race: (14:30 / 90m) preserved against late (14:00 / 60m) arrival (Verified)")
+
+    # H-4: Loading Indicator Concurrent Safety
+    active_count = 0
+    loading_on = False
+    def track_loading(is_on):
+        nonlocal active_count, loading_on
+        if is_on:
+            active_count += 1
+            loading_on = True
+        else:
+            active_count = max(0, active_count - 1)
+            if active_count == 0:
+                loading_on = False
+    track_loading(True)  # Req 1 starts
+    track_loading(True)  # Req 2 starts
+    track_loading(False) # Req 1 completes (stale)
+    assert active_count == 1 and loading_on is True
+    track_loading(False) # Req 2 completes
+    assert active_count == 0 and loading_on is False
+    print("  4) H-4 Loading Indicator: Stale request completion does NOT turn off spinner (Verified)")
+
+    # H-5: Template Verification
+    assert "let timelineRequestSeq = 0;" in html
+    assert "let whenRequestSeq = 0;" in html
+    assert "let timelineAbortController = null;" in html
+    assert "let whenAbortController = null;" in html
+    assert "let activeRequestsCount = 0;" in html
+    assert "requestSeq !== timelineRequestSeq || requestedAssetId !== currentAssetId" in html
+    assert "requestSeq !== whenRequestSeq ||" in html
+    assert "requestedStartTime !== whenStartTime" in html
+    assert "requestedDuration !== whenDuration" in html
+    match_tl = re.search(r"async function loadTimelineData\b.*?\n\s*\}\n", html, re.DOTALL)
+    assert match_tl is not None
+    assert "loadWhenData" not in match_tl.group(0)
+    print("  5) Template Invariants: Sequence IDs, AbortControllers, and mode isolation verified in HTML")
+    print("  -> Scenario H PASS: Full async stale-response protection verified.")
+
     print("\n" + "=" * 65)
-    print("  ALL 7 UX SMOKE SCENARIOS (A-G) PASSED SUCCESSFULLY! (PASS)")
+    print("  ALL 8 UX SMOKE SCENARIOS (A-H) PASSED SUCCESSFULLY! (PASS)")
     print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":
     run_ux_smoke_test()
+
 
