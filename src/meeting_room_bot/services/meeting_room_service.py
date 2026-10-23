@@ -2,13 +2,16 @@
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from meeting_room_bot.config import get_config
 from meeting_room_bot.groupware.client import GroupwareClient
 from meeting_room_bot.models import Asset, Reservation, Room, UserKey
 from meeting_room_bot.services.availability_service import AvailabilityService
 from meeting_room_bot.services.room_status_service import RoomStatus, RoomStatusService
 
+logger = logging.getLogger(__name__)
 SEOUL_TZ = timezone(timedelta(hours=9))
 
 
@@ -428,3 +431,193 @@ class MeetingRoomService:
             })
 
         return results
+
+    def get_timeline_data(
+        self,
+        asset_id: Optional[int] = None,
+        user_key: Optional[UserKey] = None,
+        favorite_service: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Fetch and calculate timeline grid data for an asset location on target_date.
+
+        Calculates:
+        - List of available assets for floor selector
+        - Selected asset details
+        - All rooms in the asset with capacity, favorite status, and available-now status
+        - Normalized reservation blocks with [left_percent, width_percent] clamped to timeline bounds
+        - Asia/Seoul current time indicator position (current_time_percent)
+        - Reserver name and meeting title preserved according to presentation config
+        """
+        config = get_config()
+
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        start_hour = config.timeline_start_hour
+        end_hour = config.timeline_end_hour
+        if end_hour <= start_hour:
+            start_hour, end_hour = 8, 20
+
+        total_minutes = (end_hour - start_hour) * 60
+
+        # Timeline boundary for the day in Asia/Seoul
+        timeline_start = target_date.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        timeline_end = target_date.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+
+        # Korean day of week
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        # Current time indicator percent if viewing today
+        current_time_percent: Optional[float] = None
+        if now.date() == target_date.date():
+            now_offset = (now - timeline_start).total_seconds() / 60.0
+            if total_minutes > 0:
+                current_time_percent = max(0.0, min(100.0, (now_offset / total_minutes) * 100.0))
+
+        all_assets = self.get_meeting_assets()
+        if not all_assets:
+            return {
+                "date": target_date.strftime("%Y-%m-%d"),
+                "date_display": date_display,
+                "current_time": now.strftime("%H:%M"),
+                "start_hour": start_hour,
+                "end_hour": end_hour,
+                "hours": list(range(start_hour, end_hour + 1)),
+                "current_time_percent": round(current_time_percent, 2) if current_time_percent is not None else None,
+                "assets": [],
+                "selected_asset": None,
+                "rooms": [],
+                "total_rooms": 0,
+                "available_rooms_count": 0,
+            }
+
+        # Resolve selected asset
+        selected_asset = None
+        if asset_id is not None:
+            selected_asset = next((a for a in all_assets if a.id == asset_id), None)
+        if selected_asset is None:
+            selected_asset = all_assets[0]
+
+        # Asset metadata for dropdown
+        assets_data = [
+            {
+                "id": a.id,
+                "name": a.name,
+                "short_label": a.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
+                "selected": (a.id == selected_asset.id),
+            }
+            for a in all_assets
+        ]
+
+        # Fetch rooms and reservations for selected asset
+        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
+        item_res = self.client.get_items(selected_asset.id)
+        daily_res = self.client.get_daily_reservations(selected_asset.id, date_str=date_str)
+
+        rooms = _parse_rooms(item_res, selected_asset.id)
+        res_map = _parse_reservations_by_room(daily_res)
+
+        # Check user favorites
+        user_fav_rooms = set()
+        user_fav_assets = set()
+        if favorite_service and user_key:
+            try:
+                uf = favorite_service.get_user_favorites(user_key)
+                user_fav_rooms = uf.favorite_rooms
+                user_fav_assets = uf.favorite_assets
+            except Exception as e:
+                logger.warning(f"Failed to load favorites for timeline: {e}")
+
+        is_asset_fav = (selected_asset.id in user_fav_assets)
+
+        rooms_data: List[Dict[str, Any]] = []
+        for room in rooms:
+            is_fav = is_asset_fav or (room.id in user_fav_rooms)
+            room_reservations = res_map.get(room.id, [])
+
+            status_info = RoomStatusService.calculate_status(room, room_reservations, now=now)
+            is_available_now = status_info.is_available
+            if is_available_now:
+                status_text = "지금 빈 회의실"
+                if status_info.next_reservation_start:
+                    status_text = f"지금 비어있음 ({status_info.next_reservation_start.strftime('%H:%M')} 예약)"
+            else:
+                end_str = status_info.current_reservation_end.strftime("%H:%M") if status_info.current_reservation_end else ""
+                status_text = f"사용 중 ({end_str}까지)" if end_str else "사용 중"
+
+            # Filter & project reservations into timeline slots
+            res_blocks: List[Dict[str, Any]] = []
+            for r in room_reservations:
+                if r.end_time <= timeline_start or r.start_time >= timeline_end:
+                    continue
+                clamped_start = max(r.start_time, timeline_start)
+                clamped_end = min(r.end_time, timeline_end)
+                start_offset = (clamped_start - timeline_start).total_seconds() / 60.0
+                duration = (clamped_end - clamped_start).total_seconds() / 60.0
+
+                left_pct = (start_offset / total_minutes) * 100.0
+                width_pct = (duration / total_minutes) * 100.0
+                if width_pct < 1.0:
+                    width_pct = 1.0
+
+                reserver_name = r.reserver_name if config.show_reserver_name else None
+                meeting_title = r.meeting_title if config.show_meeting_title else None
+
+                res_blocks.append({
+                    "id": r.id,
+                    "room_id": room.id,
+                    "room_name": room.name,
+                    "start_time": r.start_time.strftime("%H:%M"),
+                    "end_time": r.end_time.strftime("%H:%M"),
+                    "start_iso": r.start_time.isoformat(),
+                    "end_iso": r.end_time.isoformat(),
+                    "reserver_name": reserver_name,
+                    "meeting_title": meeting_title,
+                    "left_percent": round(left_pct, 2),
+                    "width_percent": round(width_pct, 2),
+                })
+
+            res_blocks.sort(key=lambda b: b["start_time"])
+
+            rooms_data.append({
+                "id": room.id,
+                "name": room.name,
+                "capacity": room.capacity,
+                "favorite": is_fav,
+                "is_available_now": is_available_now,
+                "status_text": status_text,
+                "reservations": res_blocks,
+            })
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "current_time": now.strftime("%H:%M"),
+            "start_hour": start_hour,
+            "end_hour": end_hour,
+            "hours": list(range(start_hour, end_hour + 1)),
+            "current_time_percent": round(current_time_percent, 2) if current_time_percent is not None else None,
+            "assets": assets_data,
+            "selected_asset": {
+                "id": selected_asset.id,
+                "name": selected_asset.name,
+                "short_label": selected_asset.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
+            },
+            "rooms": rooms_data,
+            "total_rooms": len(rooms_data),
+            "available_rooms_count": sum(1 for r in rooms_data if r["is_available_now"]),
+        }

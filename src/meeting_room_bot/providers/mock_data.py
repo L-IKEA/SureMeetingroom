@@ -1,6 +1,11 @@
 """Platform-independent Mock Meeting Room Dataset and Query Logic."""
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+
+from meeting_room_bot.config import get_config
+
+SEOUL_TZ = timezone(timedelta(hours=9))
 
 
 class MockMeetingRoomData:
@@ -493,6 +498,205 @@ class MockMeetingRoomData:
             "user_id": u_str,
             "assets": ["🏢 5층", "🏢 8층"],
             "rooms": ["🚪 10-2"],
+        }
+
+    @classmethod
+    def get_mock_timeline_data(
+        cls,
+        asset_id: Optional[int] = None,
+        user_key: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Generate mock timeline grid dataset for development and UI smoke testing."""
+        config = get_config()
+
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        start_hour = config.timeline_start_hour
+        end_hour = config.timeline_end_hour
+        if end_hour <= start_hour:
+            start_hour, end_hour = 8, 20
+
+        total_minutes = (end_hour - start_hour) * 60
+        timeline_start = target_date.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+        timeline_end = target_date.replace(hour=end_hour, minute=0, second=0, microsecond=0)
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        current_time_percent: Optional[float] = None
+        if now.date() == target_date.date():
+            now_offset = (now - timeline_start).total_seconds() / 60.0
+            if total_minutes > 0:
+                current_time_percent = max(0.0, min(100.0, (now_offset / total_minutes) * 100.0))
+
+        # Build assets list
+        mock_locs = cls.get_mock_locations()
+        if not mock_locs:
+            return {
+                "date": target_date.strftime("%Y-%m-%d"),
+                "date_display": date_display,
+                "current_time": now.strftime("%H:%M"),
+                "start_hour": start_hour,
+                "end_hour": end_hour,
+                "hours": list(range(start_hour, end_hour + 1)),
+                "current_time_percent": None,
+                "assets": [],
+                "selected_asset": None,
+                "rooms": [],
+                "total_rooms": 0,
+                "available_rooms_count": 0,
+            }
+
+        selected_id = asset_id if asset_id is not None and asset_id in cls.MOCK_LOCATIONS_DATA else 70
+        if selected_id not in cls.MOCK_LOCATIONS_DATA:
+            selected_id = mock_locs[0]["id"]
+
+        assets_data = [
+            {
+                "id": loc["id"],
+                "name": loc["name"],
+                "short_label": loc.get("short_label", loc["name"]),
+                "selected": (loc["id"] == selected_id),
+            }
+            for loc in mock_locs
+        ]
+
+        loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+        raw_rooms = loc_data.get("rooms", [])
+
+        has_user_favs = cls.has_favorites(user_key) if user_key else True
+        fav_rooms_pool = {170, 171, 140, 131, 180, 200}
+        fav_assets_pool = {50, 70, 80}
+
+        sample_meetings = [
+            ("신지호", "VCU 검증 회의"),
+            ("김태현", "Sprint Planning"),
+            ("이수진", "아키텍처 리뷰"),
+            ("박민우", "고객사 기술 미팅"),
+            ("정하은", "주간 팀 회의"),
+            ("최동욱", "QA 릴리즈 점검"),
+            ("한소희", "UX/UI 디자인 싱크"),
+        ]
+
+        rooms_data: List[Dict[str, Any]] = []
+        meeting_idx = 0
+
+        for r in raw_rooms:
+            room_id = r["id"]
+            room_name = r["name"]
+            capacity = r.get("capacity")
+            is_fav = has_user_favs and ((selected_id in fav_assets_pool) or (room_id in fav_rooms_pool))
+
+            schedules = r.get("schedules", [])
+            res_blocks: List[Dict[str, Any]] = []
+            is_available_now = True
+            current_meeting_end = None
+            next_meeting_start = None
+
+            for s in schedules:
+                if "~" not in s:
+                    continue
+                parts = s.split("~")
+                s_str, e_str = parts[0].strip(), parts[1].strip()
+                try:
+                    sh, sm = map(int, s_str.split(":"))
+                    eh, em = map(int, e_str.split(":"))
+                    s_dt = target_date.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                    e_dt = target_date.replace(hour=eh, minute=em, second=0, microsecond=0)
+                except Exception:
+                    continue
+
+                if s_dt <= now < e_dt:
+                    is_available_now = False
+                    current_meeting_end = e_dt
+                elif now < s_dt and (next_meeting_start is None or s_dt < next_meeting_start):
+                    next_meeting_start = s_dt
+
+                if e_dt <= timeline_start or s_dt >= timeline_end:
+                    continue
+
+                clamped_start = max(s_dt, timeline_start)
+                clamped_end = min(e_dt, timeline_end)
+                start_offset = (clamped_start - timeline_start).total_seconds() / 60.0
+                duration = (clamped_end - clamped_start).total_seconds() / 60.0
+
+                left_pct = (start_offset / total_minutes) * 100.0
+                width_pct = (duration / total_minutes) * 100.0
+                if width_pct < 1.0:
+                    width_pct = 1.0
+
+                reserver, title = sample_meetings[meeting_idx % len(sample_meetings)]
+                meeting_idx += 1
+
+                reserver_name = reserver if config.show_reserver_name else None
+                meeting_title = title if config.show_meeting_title else None
+
+                res_blocks.append({
+                    "id": meeting_idx,
+                    "room_id": room_id,
+                    "room_name": room_name,
+                    "start_time": s_str,
+                    "end_time": e_str,
+                    "start_iso": s_dt.isoformat(),
+                    "end_iso": e_dt.isoformat(),
+                    "reserver_name": reserver_name,
+                    "meeting_title": meeting_title,
+                    "left_percent": round(left_pct, 2),
+                    "width_percent": round(width_pct, 2),
+                })
+
+            res_blocks.sort(key=lambda b: b["start_time"])
+
+            if is_available_now:
+                if next_meeting_start:
+                    status_text = f"지금 비어있음 ({next_meeting_start.strftime('%H:%M')} 예약)"
+                else:
+                    status_text = "지금 빈 회의실"
+            else:
+                end_str = current_meeting_end.strftime("%H:%M") if current_meeting_end else ""
+                status_text = f"사용 중 ({end_str}까지)" if end_str else "사용 중"
+
+            rooms_data.append({
+                "id": room_id,
+                "name": room_name,
+                "capacity": capacity,
+                "favorite": is_fav,
+                "is_available_now": is_available_now,
+                "status_text": status_text,
+                "reservations": res_blocks,
+            })
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "current_time": now.strftime("%H:%M"),
+            "start_hour": start_hour,
+            "end_hour": end_hour,
+            "hours": list(range(start_hour, end_hour + 1)),
+            "current_time_percent": round(current_time_percent, 2) if current_time_percent is not None else None,
+            "assets": assets_data,
+            "selected_asset": {
+                "id": selected_id,
+                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
+                "short_label": loc_data.get("short_label", f"{selected_id}층"),
+            },
+            "rooms": rooms_data,
+            "total_rooms": len(rooms_data),
+            "available_rooms_count": sum(1 for rm in rooms_data if rm["is_available_now"]),
         }
 
 

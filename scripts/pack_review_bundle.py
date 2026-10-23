@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.2 Secure Account Linking & Web Session."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.3A Platform-independent Meeting Room Web App v1."""
 
 import os
 from pathlib import Path
@@ -10,37 +10,50 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_2_final"
+HISTORY_SUBDIR = "v0.2_phase2_3a"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_2_final_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a_webapp_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "cd641ba376df827497a0ab367a60f23721f7ba0d"
+TASK_BASE_COMMIT = "aefce423a690e0d6140906177e0b2251bd0ed354"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
-    # Manifest and Diff (stored in review_bundles/v0.2_phase2_2_final/)
+    # Manifest and Diff (stored in review_bundles/v0.2_phase2_3a/)
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_BUNDLE_MANIFEST.md", "REVIEW_BUNDLE_MANIFEST.md"),
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
     (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
 
-    # Phase 2.2 Changed & New Core / Config Files
+    # Phase 2.3A New & Changed Files
+    ("src/meeting_room_bot/models/reservation.py", "src/meeting_room_bot/models/reservation.py"),
+    ("src/meeting_room_bot/models/room.py", "src/meeting_room_bot/models/room.py"),
     ("src/meeting_room_bot/config.py", "src/meeting_room_bot/config.py"),
+    ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
+    ("src/meeting_room_bot/providers/mock_data.py", "src/meeting_room_bot/providers/mock_data.py"),
+    ("src/meeting_room_bot/providers/mock_provider.py", "src/meeting_room_bot/providers/mock_provider.py"),
+    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
+    ("src/meeting_room_bot/providers/base.py", "src/meeting_room_bot/providers/base.py"),
+    ("src/meeting_room_bot/providers/__init__.py", "src/meeting_room_bot/providers/__init__.py"),
+    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
+    ("src/meeting_room_bot/account_link/templates/timeline.html", "src/meeting_room_bot/account_link/templates/timeline.html"),
+    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
+    ("docs/V0_2_PHASE2_3A_WEB_APP.md", "docs/V0_2_PHASE2_3A_WEB_APP.md"),
+    ("docs/V0_2_ARCHITECTURE_PLAN.md", "docs/V0_2_ARCHITECTURE_PLAN.md"),
+    ("tests/test_phase2_3a_web_app.py", "tests/test_phase2_3a_web_app.py"),
+    ("scripts/smoke_test_phase2_3a.py", "scripts/smoke_test_phase2_3a.py"),
+    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+
+    # Phase 2.2 Core & Template Files
     ("src/meeting_room_bot/account_link/session_store.py", "src/meeting_room_bot/account_link/session_store.py"),
     ("src/meeting_room_bot/account_link/token_service.py", "src/meeting_room_bot/account_link/token_service.py"),
-    ("src/meeting_room_bot/account_link/app.py", "src/meeting_room_bot/account_link/app.py"),
     ("src/meeting_room_bot/account_link/templates/login.html", "src/meeting_room_bot/account_link/templates/login.html"),
-    ("src/meeting_room_bot/account_link/templates/timeline.html", "src/meeting_room_bot/account_link/templates/timeline.html"),
     ("src/meeting_room_bot/account_link/templates/error.html", "src/meeting_room_bot/account_link/templates/error.html"),
     ("src/meeting_room_bot/account_link/templates/success.html", "src/meeting_room_bot/account_link/templates/success.html"),
     ("src/meeting_room_bot/favorites/json_repository.py", "src/meeting_room_bot/favorites/json_repository.py"),
     ("src/meeting_room_bot/groupware/client.py", "src/meeting_room_bot/groupware/client.py"),
-    ("src/meeting_room_bot/providers/real_provider.py", "src/meeting_room_bot/providers/real_provider.py"),
-    ("src/meeting_room_bot/telegram/bot.py", "src/meeting_room_bot/telegram/bot.py"),
     ("src/meeting_room_bot/telegram/handlers.py", "src/meeting_room_bot/telegram/handlers.py"),
     ("src/meeting_room_bot/telegram/keyboards.py", "src/meeting_room_bot/telegram/keyboards.py"),
     ("docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md", "docs/V0_2_PHASE2_DEPLOYMENT_PLAN.md"),
     ("docs/V0_2_PHASE2_2_WEB_SESSION.md", "docs/V0_2_PHASE2_2_WEB_SESSION.md"),
-    ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
     ("scripts/run_local_app.py", "scripts/run_local_app.py"),
 
     # Test Suite
@@ -54,13 +67,9 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/utils/__init__.py", "src/meeting_room_bot/utils/__init__.py"),
     ("src/meeting_room_bot/models/user_key.py", "src/meeting_room_bot/models/user_key.py"),
     ("src/meeting_room_bot/models/__init__.py", "src/meeting_room_bot/models/__init__.py"),
-    ("src/meeting_room_bot/providers/mock_data.py", "src/meeting_room_bot/providers/mock_data.py"),
-    ("src/meeting_room_bot/providers/mock_provider.py", "src/meeting_room_bot/providers/mock_provider.py"),
-    ("src/meeting_room_bot/providers/base.py", "src/meeting_room_bot/providers/base.py"),
     ("src/meeting_room_bot/auth/session_manager.py", "src/meeting_room_bot/auth/session_manager.py"),
     ("src/meeting_room_bot/favorites/repository.py", "src/meeting_room_bot/favorites/repository.py"),
     ("src/meeting_room_bot/favorites/service.py", "src/meeting_room_bot/favorites/service.py"),
-    ("src/meeting_room_bot/services/meeting_room_service.py", "src/meeting_room_bot/services/meeting_room_service.py"),
     ("src/meeting_room_bot/telegram/mock_service.py", "src/meeting_room_bot/telegram/mock_service.py"),
 
     # Additional Test Files
@@ -70,13 +79,10 @@ BUNDLE_FILES = [
     ("tests/test_real_mode_auth_flow.py", "tests/test_real_mode_auth_flow.py"),
 
     # Earlier Docs
-    ("docs/V0_2_ARCHITECTURE_PLAN.md", "docs/V0_2_ARCHITECTURE_PLAN.md"),
     ("docs/V0_2_PHASE1_REPORT.md", "docs/V0_2_PHASE1_REPORT.md"),
 
     # 1-Hop Direct Context & Models
     ("src/meeting_room_bot/models/asset.py", "src/meeting_room_bot/models/asset.py"),
-    ("src/meeting_room_bot/models/room.py", "src/meeting_room_bot/models/room.py"),
-    ("src/meeting_room_bot/models/reservation.py", "src/meeting_room_bot/models/reservation.py"),
     ("src/meeting_room_bot/favorites/models.py", "src/meeting_room_bot/favorites/models.py"),
 
     # Regression Tests
@@ -84,6 +90,15 @@ BUNDLE_FILES = [
     ("tests/test_providers.py", "tests/test_providers.py"),
     ("tests/test_multi_user_isolation.py", "tests/test_multi_user_isolation.py"),
     ("tests/test_account_link.py", "tests/test_account_link.py"),
+    ("tests/test_room_status_service.py", "tests/test_room_status_service.py"),
+    ("tests/test_room_status_attribute.py", "tests/test_room_status_attribute.py"),
+    ("tests/test_room_detail_today_filter.py", "tests/test_room_detail_today_filter.py"),
+    ("tests/test_today_boundary_room_status.py", "tests/test_today_boundary_room_status.py"),
+    ("tests/test_telegram_bot.py", "tests/test_telegram_bot.py"),
+    ("tests/test_meeting_room_service.py", "tests/test_meeting_room_service.py"),
+    ("tests/test_bugs_safe_edit_and_next_res.py", "tests/test_bugs_safe_edit_and_next_res.py"),
+    ("tests/test_flow_entry_state.py", "tests/test_flow_entry_state.py"),
+    ("tests/test_precise_room_status.py", "tests/test_precise_room_status.py"),
 
     # Runtime Closure
     ("src/meeting_room_bot/services/availability_service.py", "src/meeting_room_bot/services/availability_service.py"),
@@ -94,7 +109,6 @@ BUNDLE_FILES = [
     ("src/meeting_room_bot/auth/__init__.py", "src/meeting_room_bot/auth/__init__.py"),
     ("src/meeting_room_bot/favorites/__init__.py", "src/meeting_room_bot/favorites/__init__.py"),
     ("src/meeting_room_bot/groupware/__init__.py", "src/meeting_room_bot/groupware/__init__.py"),
-    ("src/meeting_room_bot/providers/__init__.py", "src/meeting_room_bot/providers/__init__.py"),
     ("src/meeting_room_bot/services/__init__.py", "src/meeting_room_bot/services/__init__.py"),
     ("src/meeting_room_bot/telegram/__init__.py", "src/meeting_room_bot/telegram/__init__.py"),
     ("src/meeting_room_bot/account_link/__init__.py", "src/meeting_room_bot/account_link/__init__.py"),
@@ -209,6 +223,7 @@ def run_standalone_bundle_self_test(zip_path: Path):
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_phase2_3a_web_app.py",
             "tests/test_phase2_2_web_session.py",
             "tests/test_phase2_1_foundation.py",
             "tests/test_dynamic_date_handling.py",
@@ -241,7 +256,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.2 Final Hardening (Log Hygiene & Architecture Alignment)
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A Platform-Independent Meeting Room Web App v1
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -258,81 +273,78 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.2 Final Hardening: Secure Account Linking & Web Session Foundation** prior to any GitHub push or external Cloud/HTTPS provisioning.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A: Platform-independent Meeting Room Web App v1** prior to any GitHub push or Telegram Mini App coupling.
 
-No actual Cloud deployment, external DNS modification, firewall change, or public certificate generation was performed in this task. No GitHub push was performed. Actual Timeline UI grid is deferred to Phase 2.3.
-
-### Included Patch Criteria:
-- **`REVIEW_GIT_DIFF.patch`**: Strictly generated against **Task Base Commit..Current HEAD** (`{base_short}..{head_short}`), capturing final hardening changes implemented in Phase 2.2 (excluding recursive review bundles).
-- **`CUMULATIVE_GIT_DIFF.patch`**: Cumulative patch from Release Base Tag (`{RELEASE_BASE_TAG}`..`{head_short}`) provided for complete full-lineage reference.
+### Scope & Constraints:
+- **Platform-Independent**: Standalone Web App accessible via standard mobile/desktop browsers using existing `WebSession`.
+- **Zero Telegram Dependencies in Web App**: No `Telegram.WebApp` or Telegram-specific branching inside Timeline UI or Core services. Shared Core architecture strictly preserved.
+- **No Mini App Coupling**: Telegram Mini App Adapter is deferred to Phase 2.3B.
+- **No Kakao Coupling**: Kakao Adapter is deferred to future phase.
+- **Read-Only Timeline v1**: 회의실 생성/수정/취소는 미구현 (추후 단계 제공).
+- **Strict Prohibition**: `git push` was NOT executed.
 
 ---
 
-## 3. Key Final Hardening Implementations
+## 3. Key Implementations
 
-### 1) LinkSession ID Raw Log Exposure Elimination
-- In `src/meeting_room_bot/account_link/app.py`:
-  - Removed raw `link_session_id` string from concurrent replay warning log.
-  - Replaced with a non-sensitive message: `logger.warning("[account_link] Concurrent replay or already consumed link session detected.")`.
-  - Maintained zero raw logging policy for all sensitive identifiers:
-    - `password`
-    - `one-time account link token`
-    - `LinkSession ID`
-    - `WebSession ID`
+### 1) Mobile-First Responsive Meeting Room Timeline Web App (`/timeline`)
+- **URL Preserved**: Replaced placeholder at `GET /timeline` with a functional, mobile-first Web App.
+- **Centralized Work Hours Axis**: 08:00 ~ 20:00 (configured in `AppConfig` via `TIMELINE_START_HOUR` & `TIMELINE_END_HOUR`).
+- **Asia/Seoul Current Time Indicator**: 실시간 세로 인디케이터 라인 및 시각 배지 표시 (오늘 날짜 범위 내).
+- **Sticky Room Column**: 360px ~ 430px 모바일 가로 스크롤 시에도 회의실 이름, 정원, 지금 사용 가능 상태가 고정되어 길을 잃지 않음.
+- **"지금 빈 회의실(🟢)" 배지**: 사용자가 즉시 사용할 수 있는 방을 시각적으로 강조.
+- **Reservation Detail Bottom Sheet / Modal**: 예약 블록 터치 시 회의실, 시간, 예약자, 회의명 상세 표시.
 
-### 2) Concurrent Replay Log Hygiene Test Augmentation
-- In `tests/test_phase2_2_web_session.py`:
-  - Added `test_concurrent_replay_log_hygiene_no_session_leakage(self, caplog)`.
-  - Uses thread synchronization barrier at rate-limiting pre-check to guarantee both requests hit concurrent LinkSession consumption window:
-    - Winner request: returns HTTP 303 -> `/timeline` + creates `WebSession`
-    - Replay request: returns HTTP 400 rejection + clears `LinkSession` cookie
-  - Directly tests application logs (`meeting_room_bot.*` records) to assert:
-    - `password not in logs`
-    - `one-time token not in logs`
-    - `LinkSession ID not in logs`
-    - `WebSession ID not in logs`
+### 2) Dynamic Floor Selection & JSON API Endpoint (`GET /api/web/timeline`)
+- **Dynamic Asset Retrieval**: Asset/Floor 및 Room 정보가 HTML에 하드코딩되지 않고 `MeetingRoomService` / Provider를 통해 동적 로드.
+- **Fast Dynamic Switching**: 상단 층 드롭다운 선택 시 `GET /api/web/timeline?asset_id=...` 호출로 페이지 깜빡임 없이 비동기 갱신.
+- **Instant Initial Bootstrap**: 첫 페이지 로드 시 `<script id="initial-timeline-data" type="application/json">` 주입으로 추가 라운드트립 없이 즉시 렌더링.
 
-### 3) Architecture Documentation Alignment
-- In `docs/V0_2_ARCHITECTURE_PLAN.md`:
-  - Removed legacy `GET/POST /link/{{token}}` description in Section 1.1 and aligned with Phase 2.2:
-    - `GET /link/{{token}}` -> one-time token consume -> `LinkSession` -> `303 /link/login`
-    - `GET /link/login` -> CSRF login form
-    - `POST /link/login` -> Groupware login -> `WebSession` -> `/timeline`
-    - `GET /timeline` -> protected room timeline view
-    - `POST /logout` -> WebSession termination
-  - Aligned Section 6.1 sequence diagram and Section 6.2 security specifications.
-  - Verified no active documentation in the repository claims `POST /link/{{token}}` is currently supported.
+### 3) Reservation DTO Extension & Presentation Policy
+- **Grounded API Mapping**:
+  - `reserver_name: Optional[str]` mapped from actual Groupware fields (`userName`, `empName`, `reserverName`, `registerName`, `writer`).
+  - `meeting_title: Optional[str]` mapped from actual Groupware fields (`title`, `subject`, `meetingTitle`, `scheduleTitle`).
+- **Presentation Toggle**: `SHOW_RESERVER_NAME`, `SHOW_MEETING_TITLE` settings in `AppConfig` allow masking without permanently deleting data from core.
+- **Backward Compatibility**: Preserved `assert not hasattr(res, "userName")` requirement for security test suite.
 
-### 4) Regression Prevention & Hardening Integrity
-All previous Phase 2.2 hardening behaviors strictly preserved:
-- Direct `POST /link/{{token}}` -> 405 Method Not Allowed (`GroupwareClient.login` call count = 0)
-- Concurrent replay -> `GroupwareClient.login` called exactly 1 time
-- Successful login -> 303 `/timeline`
-- Replay login -> 400 rejection
-- CSRF validation and constant-time check (`secrets.compare_digest`)
-- LinkSession / WebSession cookie path isolation
-- `/timeline` authentication and orphan session cleanup
-- `/logout` session termination
-- Telegram bot full feature set preserved
-- Local Account Linking preserved
+### 4) Favorites Integration
+- Reused existing `UserKey` based `FavoriteService` and `JsonFavoriteRepository`.
+- `[⭐ 즐겨찾기]` / `[전체]` instant segmented filter toggle.
+- Helpful guidance displayed when no favorites are registered.
+
+### 5) Authentication & Security Hygiene
+- **Dual Session Validation**: Requires both valid `meetingroom_web_session` cookie and active Groupware session in `session_manager`.
+- **Friendly Boundary Screens**: 401 unauthenticated and session expired screens with clear guidance.
+- **Zero Credential Leakage**: `password`, `session cookie`, `GOSSOcookie`, `account link token`, `LinkSession ID`, `WebSession ID` are strictly excluded from HTML, JS, and API responses.
+- **Strict Headers Preserved**: `Cache-Control`, `Referrer-Policy`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, `CSP: frame-ancestors 'none'`.
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Phase 2.2 Hardening)**: 238 passed.
-- **Enhanced Test Suite**: 239 passed, 0 failed, 0 skipped.
-- **New Tests Added**: `test_concurrent_replay_log_hygiene_no_session_leakage`
-- **Execution Time**: ~4.5s.
+- **Baseline Tests (Phase 2.2 Final)**: 239 passed.
+- **New Tests Added (Phase 2.3A)**: 22 passed in `tests/test_phase2_3a_web_app.py`.
+- **Full Pytest Suite**: 261 passed, 0 failed, 0 skipped.
+- **Execution Time**: ~3.6s.
+- **Standalone Review Bundle Self-Test**: Extracted zip executed cleanly with 100% test pass.
+- **End-to-End Smoke Test**: `scripts/smoke_test_phase2_3a.py` 9/9 steps PASSED.
 
 ---
 
-## 5. Company Decision Gate (6 Items Pending Before Production Deployment)
-1. **운영 서버 인프라**: 사내 VM vs 회사 승인 공식 Cloud
-2. **외부 HTTPS 수신 경로**: 공인 443 오픈 vs 사내 기존 Web Gateway
-3. **공인 도메인 및 인증서**: 사용할 사내 서브도메인 및 와일드카드 인증서 vs Let's Encrypt
-4. **Telegram 아웃바운드**: 사내망에서 `api.telegram.org:443` HTTPS 아웃바운드 허용 여부
-5. **Groupware API 도달성**: 후보 운영 서버에서 `gw.suresofttech.com` 네트워크 도달 테스트
-6. **사내 계정 인증 정책**: 공식 SSO(OAuth2/SAML) 지원 여부 및 자체 웹 페이지 ID/PW 입력 정책 승인
+## 5. Artifacts & Web App Metrics
+- **HTML Templates**: 4 templates (`login.html`, `timeline.html`, `error.html`, `success.html`)
+- **Static Assets**: 0 external assets (self-contained Vanilla HTML5/CSS3/JS, zero npm build dependencies)
+- **New Web Endpoints**:
+  - `GET /timeline` (enhanced to full Web App)
+  - `GET /api/web/timeline` (Web App dynamic JSON API)
+- **Secret Scan**: 100% Clean (0 real bot tokens, 0 cookies, 0 hardcoded credentials)
+
+---
+
+## 6. Next Steps: Phase 2.3B Telegram Mini App Adapter
+1. Telegram Bot 인라인 키보드에 `web_app=WebAppInfo(url=...)` 연동
+2. Telegram `initData` 기반 자동 검증 및 WebSession 매핑
+3. Mini App 내 iframe 허용을 위한 CSP 및 `X-Frame-Options` 선별적 조정
+4. 뒤로가기 버튼 / 햅틱 피드백 이벤트 연동
 """
     manifest_path.write_text(content, encoding="utf-8")
     print(f"[OK] Generated {manifest_path.name} (HEAD={head_commit})")

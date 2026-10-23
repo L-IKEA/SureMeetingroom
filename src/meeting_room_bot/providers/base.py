@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional, Union
 
@@ -81,4 +82,14 @@ class MeetingRoomQueryProvider(ABC):
     @abstractmethod
     def get_favorites(self, user_id: Union[UserKey, str]) -> QueryResult:
         """Query registered user favorites."""
+        pass
+
+    @abstractmethod
+    def get_timeline(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[int] = None,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        """Query timeline grid data for an asset location."""
         pass

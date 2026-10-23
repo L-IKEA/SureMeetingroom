@@ -1,6 +1,7 @@
 """Mock implementation of MeetingRoomQueryProvider for development and UI testing."""
 
-from typing import Union
+from datetime import datetime
+from typing import Optional, Union
 
 from meeting_room_bot.models.user_key import UserKey
 from meeting_room_bot.providers.base import (
@@ -72,4 +73,18 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
     def get_favorites(self, user_id: Union[UserKey, str]) -> QueryResult:
         uid = self._resolve_uid(user_id)
         res = MockMeetingRoomData.get_mock_favorites(uid)
+        return QueryResult(status=QueryStatus.SUCCESS, data=res)
+
+    def get_timeline(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[int] = None,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        uid = self._resolve_uid(user_id)
+        res = MockMeetingRoomData.get_mock_timeline_data(
+            asset_id=asset_id,
+            user_key=uid,
+            target_date=target_date,
+        )
         return QueryResult(status=QueryStatus.SUCCESS, data=res)

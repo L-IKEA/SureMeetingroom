@@ -396,3 +396,40 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
                 "rooms": room_names if room_names else ["(없음)"],
             },
         )
+
+    def get_timeline(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[int] = None,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        """Fetch and return timeline grid dataset for specified user and asset."""
+        if not self.session_mgr.has_session(user_id):
+            return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
+
+        service = self._get_service(user_id)
+        if not service:
+            return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
+
+        try:
+            user_key = UserKey.from_any(user_id)
+            data = service.get_timeline_data(
+                asset_id=asset_id,
+                user_key=user_key,
+                favorite_service=self.favorite_service,
+                target_date=target_date,
+            )
+            return QueryResult(status=QueryStatus.SUCCESS, data=data)
+        except GroupwareAuthError as e:
+            logger.warning(f"401 Auth error for user {user_id}: {e}")
+            self.session_mgr.remove_session(user_id)
+            return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+        except GroupwareNetworkError as e:
+            logger.error(f"Network error in get_timeline for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error in get_timeline for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+        except Exception as e:
+            logger.error(f"Error in get_timeline for user {user_id}: {e}", exc_info=True)
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))

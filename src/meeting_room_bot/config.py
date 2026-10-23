@@ -32,6 +32,12 @@ class AppConfig:
     # 5. Data Persistence
     favorites_file_path: str = "data/favorites.json"
 
+    # 6. Web Timeline & Presentation Policy
+    timeline_start_hour: int = 8
+    timeline_end_hour: int = 20
+    show_reserver_name: bool = True
+    show_meeting_title: bool = True
+
     @property
     def is_secure_cookie(self) -> bool:
         """Return True if base URL is HTTPS, ensuring Secure cookie flag in production."""
@@ -55,6 +61,10 @@ class AppConfig:
             rate_limit_login_per_minute=int(os.environ.get("RATE_LIMIT_LOGIN_PER_MINUTE", "10")),
             groupware_base_url=os.environ.get("GROUPWARE_BASE_URL", "https://gw.suresofttech.com").rstrip("/"),
             favorites_file_path=os.environ.get("FAVORITES_FILE_PATH", "data/favorites.json"),
+            timeline_start_hour=int(os.environ.get("TIMELINE_START_HOUR", "8")),
+            timeline_end_hour=int(os.environ.get("TIMELINE_END_HOUR", "20")),
+            show_reserver_name=os.environ.get("SHOW_RESERVER_NAME", "true").strip().lower() in ("true", "1", "yes"),
+            show_meeting_title=os.environ.get("SHOW_MEETING_TITLE", "true").strip().lower() in ("true", "1", "yes"),
         )
 
 

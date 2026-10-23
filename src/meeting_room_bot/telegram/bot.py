@@ -27,21 +27,9 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 def get_default_provider(favorite_service: Optional["FavoriteService"] = None) -> MeetingRoomQueryProvider:
     """Instantiate Provider based on TELEGRAM_DATA_MODE environment variable."""
-    from meeting_room_bot.auth.session_manager import session_manager
-    from meeting_room_bot.favorites.json_repository import JsonFavoriteRepository
-    from meeting_room_bot.favorites.service import FavoriteService
-    from meeting_room_bot.providers.mock_provider import MockMeetingRoomProvider
-    from meeting_room_bot.providers.real_provider import RealMeetingRoomProvider
+    from meeting_room_bot.providers import get_provider
 
-    mode = os.environ.get("TELEGRAM_DATA_MODE", "mock").strip().lower()
-    if mode == "real":
-        logger.info("[bot] Initializing RealMeetingRoomProvider (TELEGRAM_DATA_MODE=real)")
-        if favorite_service is None:
-            favorite_service = FavoriteService(JsonFavoriteRepository())
-        return RealMeetingRoomProvider(session_mgr=session_manager, favorite_service=favorite_service)
-    else:
-        logger.info("[bot] Initializing MockMeetingRoomProvider (TELEGRAM_DATA_MODE=mock)")
-        return MockMeetingRoomProvider()
+    return get_provider(favorite_service=favorite_service)
 
 
 def build_application(

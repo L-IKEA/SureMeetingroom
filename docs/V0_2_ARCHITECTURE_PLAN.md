@@ -84,7 +84,8 @@ v0.1-local-mvp는 로컬 단일 인스턴스 환경에서 Telegram Bot 및 Group
      - `GET /link/{token}`: One-Time Token 검증 및 소각 (`consume_token`), `LinkSession` 생성 및 쿠키 발급, `303 See Other` -> `/link/login` 리다이렉트
      - `GET /link/login`: `LinkSession` 검증 및 암호학적 CSRF 토큰이 주입된 로그인 폼(`login.html`) 렌더링
      - `POST /link/login`: CSRF 토큰 검증, IP Rate Limit 확인, `LinkSession` 원자적 소각, Groupware 비동기 로그인 (`asyncio.to_thread`), `WebSession` 생성 및 쿠키 발급, `303 See Other` -> `/timeline`
-     - `GET /timeline`: `WebSession` 검증 기반 인가 보호된 타임라인 뷰 (`timeline.html`)
+     - `GET /timeline`: `WebSession` 검증 기반 인가 보호된 모바일 우선 타임라인 웹 앱 (`timeline.html`)
+     - `GET /api/web/timeline`: 동적 층 변경 및 타임라인 데이터 조회를 위한 Web App 전용 JSON API
      - `POST /logout`: `WebSession` 파기 및 세션 정리
    - `session_store.py`: `LinkSessionStore` 및 `WebSessionStore` 인메모리 관리 (`Single-process pilot`).
    - `token_service.py`: 1회성 토큰 발급/검증/소각 인메모리 서비스 (`default_ttl=600s`).
@@ -448,10 +449,12 @@ graph TD
 - [x] Telegram Handler에서 `UserKey`를 명시적으로 Core에 전달하도록 전환.
 - [x] 단위/회귀 테스트 171개 100% PASS 달성.
 
-### Phase 2: Production Account Linking & HTTPS 준비
-- [ ] 공인 HTTPS endpoint 및 ingress/reverse proxy 방식 검토 (예: Nginx 등 연동 방안 검토).
-- [ ] Telegram 핸들러에서 공인 HTTPS 도메인 감지 시 `InlineKeyboardButton(url=link_url)` 활성화.
-- [ ] 웹 로그인 폼에 CSRF 방어 및 Rate Limiting 기초 적용.
+### Phase 2: Production Account Linking & Web App Foundation
+- [x] **Phase 2.1**: Security Foundation & Hardening (Keyboards, UserKey namespace, Rate limit, I/O isolation, Forwarded IPs)
+- [x] **Phase 2.2**: Secure Account Linking & Web Session Foundation (Token exchange, LinkSession, CSRF, WebSession, /logout)
+- [x] **Phase 2.3A**: Platform-independent Meeting Room Web App v1 (/timeline, mobile-first, sticky rooms, time axis, reserver/title mapping, 0 Telegram dependency)
+- [ ] **Phase 2.3B**: Telegram Mini App Adapter (WebAppInfo, initData validation, CSP frame-ancestors adjustment)
+- [ ] **Phase 2.4**: Production HTTPS & Ingress Deployment (Nginx / Cloudflare / Let's Encrypt)
 
 ### Phase 3: Persistence 추상화 및 Telegram 운영 검증
 - [ ] `SessionStore` 및 `FavoriteRepository` 인터페이스 정의.

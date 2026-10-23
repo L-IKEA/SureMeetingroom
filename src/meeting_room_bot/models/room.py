@@ -36,6 +36,13 @@ class Room:
         raw_name = str(raw_name).strip()
 
         name, capacity = cls.parse_raw_name(raw_name)
+        if capacity is None:
+            raw_cap = item_dict.get("capacity") or item_dict.get("itemCapacity") or item_dict.get("roomCapacity")
+            if raw_cap is not None:
+                try:
+                    capacity = int(raw_cap)
+                except (ValueError, TypeError):
+                    pass
 
         return cls(
             id=int(room_id),

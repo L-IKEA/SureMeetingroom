@@ -2,141 +2,1079 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="no-referrer">
     <title>회의실 시간표 - 슈어소프트테크</title>
     <style>
+        :root {
+            --bg-page: #f8fafc;
+            --bg-card: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-light: #94a3b8;
+            --border-color: #e2e8f0;
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #eff6ff;
+            --success-bg: #ecfdf5;
+            --success-border: #a7f3d0;
+            --success-text: #065f46;
+            --danger-bg: #fef2f2;
+            --danger-border: #fecaca;
+            --danger-text: #991b1b;
+            --busy-block: #3b82f6;
+            --busy-block-border: #1d4ed8;
+            --indicator-color: #ef4444;
+            --room-col-width: 130px;
+            --timeline-min-width: 720px;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
-            background-color: #f1f5f9;
-            color: #0f172a;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background-color: var(--bg-page);
+            color: var(--text-main);
             min-height: 100vh;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
         }
 
-        .card {
+        /* Top Header */
+        header.app-header {
             background: #ffffff;
-            width: 100%;
-            max-width: 480px;
-            border-radius: 16px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
-            overflow: hidden;
-            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
         }
 
-        .card-header {
-            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
-            color: #ffffff;
-            padding: 32px 24px;
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
         }
 
-        .card-header .badge {
-            display: inline-block;
-            background-color: rgba(255, 255, 255, 0.2);
-            color: #ffffff;
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 12px;
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .card-header h1 {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 6px;
-        }
-
-        .card-body {
-            padding: 36px 28px;
-        }
-
-        .icon {
-            font-size: 56px;
-            margin-bottom: 16px;
-        }
-
-        .status-title {
+        .header-title-wrap h1 {
             font-size: 18px;
             font-weight: 700;
-            color: #1e293b;
-            margin-bottom: 8px;
+            color: var(--text-main);
+            line-height: 1.2;
         }
 
-        .status-desc {
-            font-size: 14px;
-            color: #64748b;
-            line-height: 1.6;
-            margin-bottom: 24px;
+        .header-title-wrap .subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
         }
 
-        .info-box {
-            background-color: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 16px;
-            font-size: 13px;
-            color: #334155;
-            line-height: 1.6;
-            margin-bottom: 24px;
-            text-align: left;
-        }
-
-        .user-tag {
-            font-family: monospace;
-            background-color: #e2e8f0;
-            padding: 2px 6px;
-            border-radius: 4px;
-            color: #1e293b;
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .btn-logout {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: #f1f5f9;
+            padding: 6px 12px;
+            background: #f1f5f9;
             color: #475569;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
-            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s ease;
         }
 
         .btn-logout:hover {
-            background-color: #e2e8f0;
-            color: #0f172a;
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        /* Notice & Compatibility banner */
+        .system-banner {
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--border-color);
+            padding: 6px 16px;
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .system-banner .badge {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        /* Controls Section */
+        .controls-bar {
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @media (min-width: 640px) {
+            .controls-bar {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+            }
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Floor Selector */
+        .select-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .floor-select {
+            appearance: none;
+            background: #ffffff url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right 10px center;
+            background-size: 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 34px 8px 12px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.15s ease;
+        }
+
+        .floor-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+        }
+
+        /* Segmented Filter */
+        .segment-filter {
+            display: inline-flex;
+            background: #e2e8f0;
+            padding: 3px;
+            border-radius: 8px;
+        }
+
+        .segment-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .segment-btn.active {
+            background: #ffffff;
+            color: var(--primary-dark);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Summary Badges */
+        .summary-badge-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            background: var(--success-bg);
+            color: var(--success-text);
+            border: 1px solid var(--success-border);
+        }
+
+        /* Main Container */
+        main.main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 0 16px 24px;
+            flex: 1;
+        }
+
+        /* Timeline Card */
+        .timeline-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .timeline-scroll-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            position: relative;
+            width: 100%;
+        }
+
+        .timeline-table {
+            display: flex;
+            flex-direction: column;
+            min-width: calc(var(--room-col-width) + var(--timeline-min-width));
+            width: 100%;
+            position: relative;
+        }
+
+        /* Header Row (Hours) */
+        .timeline-header-row {
+            display: flex;
+            background: #f8fafc;
+            border-bottom: 2px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 25;
+        }
+
+        .room-col-header {
+            width: var(--room-col-width);
+            min-width: var(--room-col-width);
+            max-width: var(--room-col-width);
+            padding: 10px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            background: #f8fafc;
+            border-right: 1px solid var(--border-color);
+            position: sticky;
+            left: 0;
+            z-index: 30;
+            display: flex;
+            align-items: center;
+        }
+
+        .hours-col-header {
+            flex: 1;
+            position: relative;
+            height: 38px;
+            display: flex;
+        }
+
+        .hour-tick {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            transform: translateX(-50%);
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Room Row */
+        .room-row {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            min-height: 58px;
+            transition: background-color 0.1s ease;
+        }
+
+        .room-row:hover {
+            background-color: #fafbfc;
+        }
+
+        /* Sticky Room Name Cell */
+        .room-info-cell {
+            width: var(--room-col-width);
+            min-width: var(--room-col-width);
+            max-width: var(--room-col-width);
+            padding: 8px 12px;
+            background: #ffffff;
+            border-right: 1px solid var(--border-color);
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .room-row:hover .room-info-cell {
+            background-color: #fafbfc;
+        }
+
+        .room-title-line {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .room-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-main);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .fav-star {
+            color: #eab308;
+            font-size: 12px;
+        }
+
+        .room-meta-line {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+        }
+
+        .capacity-pill {
+            font-size: 10px;
+            background: #f1f5f9;
+            color: #475569;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .now-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .now-status-dot.avail {
+            background-color: #10b981;
+            box-shadow: 0 0 0 2px #d1fae5;
+        }
+
+        .now-status-dot.busy {
+            background-color: #ef4444;
+            box-shadow: 0 0 0 2px #fee2e2;
+        }
+
+        /* Timeline Track Cell */
+        .timeline-track-cell {
+            flex: 1;
+            position: relative;
+            height: 58px;
+            background-image: repeating-linear-gradient(
+                to right,
+                var(--border-color) 0px,
+                var(--border-color) 1px,
+                transparent 1px,
+                transparent calc(100% / 12)
+            );
+        }
+
+        /* Reservation Block */
+        .res-block {
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            border-radius: 6px;
+            padding: 4px 8px;
+            cursor: pointer;
+            overflow: hidden;
+            border: 1px solid #1e40af;
+            box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+            transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .res-block:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.08);
+            box-shadow: 0 4px 8px rgba(37, 99, 235, 0.3);
+            z-index: 15;
+        }
+
+        .res-block:active {
+            transform: translateY(0);
+        }
+
+        .res-block .block-time {
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1.1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            opacity: 0.95;
+        }
+
+        .res-block .block-title {
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
+        }
+
+        /* Current Time Line Indicator */
+        .current-time-marker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: var(--indicator-color);
+            z-index: 22;
+            pointer-events: none;
+        }
+
+        .current-time-marker::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -4px;
+            width: 10px;
+            height: 10px;
+            background-color: var(--indicator-color);
+            border-radius: 50%;
+        }
+
+        .current-time-badge {
+            position: absolute;
+            top: -20px;
+            transform: translateX(-50%);
+            background: var(--indicator-color);
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Empty / Message States */
+        .empty-state {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .empty-state .icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        .empty-state h3 {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 6px;
+        }
+
+        .empty-state p {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* Error Notification Banner */
+        .error-banner {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .error-banner button {
+            background: #ffffff;
+            border: 1px solid #f87171;
+            color: #b91c1c;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        /* Detail Modal / Bottom Sheet */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(2px);
+            z-index: 100;
+            align-items: flex-end;
+            justify-content: center;
+        }
+
+        @media (min-width: 640px) {
+            .modal-backdrop {
+                align-items: center;
+            }
+        }
+
+        .modal-backdrop.active {
+            display: flex;
+        }
+
+        .modal-panel {
+            background: #ffffff;
+            width: 100%;
+            max-width: 440px;
+            border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
+            padding: 24px 20px 28px;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+            animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @media (min-width: 640px) {
+            .modal-panel {
+                border-radius: 16px;
+                animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            }
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        @keyframes popIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+
+        .modal-title-group h2 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .modal-title-group .modal-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .modal-close-btn {
+            background: #f1f5f9;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            transition: all 0.15s;
+        }
+
+        .modal-close-btn:hover {
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+
+        .modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .detail-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-val {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            background: #f8fafc;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #f1f5f9;
+        }
+
+        .detail-val.highlight {
+            color: var(--primary-dark);
+            background: var(--primary-light);
+            border-color: #dbeafe;
         }
     </style>
 </head>
 <body>
-    <div class="card">
-        <div class="card-header">
-            <span class="badge">🔐 계정 연결 완료</span>
-            <h1>회의실 시간표</h1>
-        </div>
-        <div class="card-body">
-            <div class="icon">📅</div>
-            <div class="status-title">계정 연결이 완료되었습니다.</div>
-            <p class="status-desc">인증된 사용자: <span class="user-tag">{{ user_display }}</span></p>
-            <div class="info-box">
-                📌 <strong>안내</strong><br>
-                Timeline UI는 다음 단계에서 제공됩니다.<br>
-                (회의실 실시간 시간표 그리드 및 예약 조회는 Phase 2.3 제공 예정)
+    <!-- Top Bar -->
+    <header class="app-header">
+        <div class="header-content">
+            <div class="header-left">
+                <div class="header-title-wrap">
+                    <h1>회의실 시간표</h1>
+                    <div class="subtitle" id="date-display">오늘 회의실 예약 현황</div>
+                </div>
             </div>
-            <form method="POST" action="/logout">
-                <button type="submit" class="btn-logout">🚪 로그아웃</button>
-            </form>
+            <div class="header-right">
+                <form method="POST" action="/logout">
+                    <button type="submit" class="btn-logout" title="세션 종료">🚪 로그아웃</button>
+                </form>
+            </div>
+        </div>
+    </header>
+
+    <!-- System & Compatibility Notice -->
+    <div class="system-banner">
+        <span>계정 연결이 완료되었습니다: <strong>{{ user_display }}</strong></span>
+        <span class="badge">Timeline UI는 다음 단계에서 제공됩니다 (v1)</span>
+    </div>
+
+    <!-- Error Alert Banner -->
+    <div id="error-container" style="max-width: 1200px; margin: 8px auto 0; padding: 0 16px; display: none;">
+        <div class="error-banner">
+            <span id="error-text">회의실 정보를 불러오지 못했습니다.</span>
+            <button type="button" onclick="loadTimelineData()">다시 시도</button>
         </div>
     </div>
+
+    <!-- Controls Bar -->
+    <div class="controls-bar">
+        <div class="filter-group">
+            <!-- Floor / Asset Selector -->
+            <div class="select-wrapper">
+                <select id="asset-select" class="floor-select" onchange="onAssetChange(this.value)" aria-label="회의실 층 선택">
+                    <option value="">층 선택 불러오는 중...</option>
+                </select>
+            </div>
+
+            <!-- Favorite / All Segmented Filter -->
+            <div class="segment-filter" role="tablist" aria-label="필터">
+                <button type="button" class="segment-btn active" id="filter-all-btn" onclick="setFilter('all')">전체</button>
+                <button type="button" class="segment-btn" id="filter-fav-btn" onclick="setFilter('fav')">⭐ 즐겨찾기</button>
+            </div>
+        </div>
+
+        <div class="summary-badge-wrap">
+            <span class="status-chip" id="available-counter">
+                🟢 지금 사용 가능: 0개
+            </span>
+        </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <main class="main-content">
+        <div class="timeline-card">
+            <div class="timeline-scroll-container" id="timeline-scroll">
+                <div class="timeline-table" id="timeline-table">
+                    <!-- Hours Header Row -->
+                    <div class="timeline-header-row" id="timeline-header">
+                        <div class="room-col-header">회의실</div>
+                        <div class="hours-col-header" id="hours-header-container">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Room Rows Container -->
+                    <div id="rooms-rows-container">
+                        <!-- Injected by JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Detail Bottom Sheet / Modal -->
+    <div class="modal-backdrop" id="detail-modal" onclick="onBackdropClick(event)">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="modal-room-name">회의실 상세</h2>
+                    <div class="modal-subtitle" id="modal-room-meta">슈어소프트테크 회의실</div>
+                </div>
+                <button type="button" class="modal-close-btn" onclick="closeDetailModal()" aria-label="닫기">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="detail-item">
+                    <span class="detail-label">예약 시간</span>
+                    <div class="detail-val highlight" id="modal-time-range">09:00 ~ 10:00</div>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">예약자</span>
+                    <div class="detail-val" id="modal-reserver-name">-</div>
+                </div>
+                <div class="detail-item">
+                    <span class="detail-label">회의명</span>
+                    <div class="detail-val" id="modal-meeting-title">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Initial Data Bootstrap (Zero sensitive credentials) -->
+    <script id="initial-timeline-data" type="application/json">{{ initial_data_json }}</script>
+
+    <!-- Web App Application Logic -->
+    <script>
+        // State
+        let currentTimelineData = null;
+        let currentFilter = 'all'; // 'all' | 'fav'
+
+        // DOM Elements
+        const assetSelect = document.getElementById('asset-select');
+        const dateDisplay = document.getElementById('date-display');
+        const availableCounter = document.getElementById('available-counter');
+        const hoursHeader = document.getElementById('hours-header-container');
+        const roomsContainer = document.getElementById('rooms-rows-container');
+        const errorContainer = document.getElementById('error-container');
+        const errorText = document.getElementById('error-text');
+        const detailModal = document.getElementById('detail-modal');
+
+        // Modal Elements
+        const modalRoomName = document.getElementById('modal-room-name');
+        const modalRoomMeta = document.getElementById('modal-room-meta');
+        const modalTimeRange = document.getElementById('modal-time-range');
+        const modalReserverName = document.getElementById('modal-reserver-name');
+        const modalMeetingTitle = document.getElementById('modal-meeting-title');
+
+        // Initialize application on load
+        document.addEventListener('DOMContentLoaded', () => {
+            const initialDataElem = document.getElementById('initial-timeline-data');
+            let initialData = {};
+            if (initialDataElem && initialDataElem.textContent.trim()) {
+                try {
+                    initialData = JSON.parse(initialDataElem.textContent);
+                } catch (e) {
+                    console.error('Failed to parse initial timeline data', e);
+                }
+            }
+
+            if (initialData && initialData.rooms) {
+                renderTimeline(initialData);
+            } else {
+                loadTimelineData();
+            }
+        });
+
+        // Fetch dynamic timeline data from /api/web/timeline
+        async function loadTimelineData(assetId = null) {
+            hideError();
+            let url = '/api/web/timeline';
+            if (assetId !== null) {
+                url += `?asset_id=${encodeURIComponent(assetId)}`;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin'
+                });
+
+                if (response.status === 401) {
+                    window.location.reload();
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    showError(errData.error || '회의실 정보를 불러오지 못했습니다.');
+                    return;
+                }
+
+                const data = await response.json();
+                renderTimeline(data);
+            } catch (err) {
+                console.error('Fetch timeline error', err);
+                showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
+            }
+        }
+
+        // Render entire timeline dataset
+        function renderTimeline(data) {
+            currentTimelineData = data;
+
+            // 1. Date Header
+            if (data.date_display) {
+                dateDisplay.textContent = `${data.date_display} · 현재 ${data.current_time || ''}`;
+            }
+
+            // 2. Floor Selector Options
+            if (Array.isArray(data.assets) && data.assets.length > 0) {
+                assetSelect.innerHTML = data.assets.map(a => 
+                    `<option value="${a.id}" ${a.selected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`
+                ).join('');
+            }
+
+            // 3. Available counter
+            const total = data.total_rooms || (data.rooms ? data.rooms.length : 0);
+            const avail = data.available_rooms_count || 0;
+            availableCounter.innerHTML = `🟢 지금 사용 가능: <strong>${avail}</strong> / ${total}개`;
+
+            // 4. Hours Axis Header
+            renderHoursHeader(data.start_hour || 8, data.end_hour || 20);
+
+            // 5. Room Rows
+            renderRooms();
+        }
+
+        function renderHoursHeader(startHour, endHour) {
+            hoursHeader.innerHTML = '';
+            const totalHours = endHour - startHour;
+            if (totalHours <= 0) return;
+
+            for (let h = startHour; h <= endHour; h++) {
+                const pct = ((h - startHour) / totalHours) * 100;
+                const tick = document.createElement('div');
+                tick.className = 'hour-tick';
+                tick.style.left = `${pct}%`;
+                tick.textContent = `${String(h).padStart(2, '0')}:00`;
+                hoursHeader.appendChild(tick);
+            }
+        }
+
+        // Render Room rows according to active filter
+        function renderRooms() {
+            roomsContainer.innerHTML = '';
+            if (!currentTimelineData || !currentTimelineData.rooms) {
+                roomsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">🏢</div>
+                        <h3>회의실 정보가 없습니다.</h3>
+                        <p>선택하신 위치에 등록된 회의실이 없습니다.</p>
+                    </div>`;
+                return;
+            }
+
+            let rooms = currentTimelineData.rooms;
+            if (currentFilter === 'fav') {
+                rooms = rooms.filter(r => r.favorite);
+            }
+
+            if (rooms.length === 0) {
+                if (currentFilter === 'fav') {
+                    roomsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">⭐</div>
+                            <h3>즐겨찾기된 회의실이 없습니다.</h3>
+                            <p>전체 탭에서 회의실을 확인하거나 챗봇에서 자주 쓰는 회의실을 즐겨찾기로 등록해보세요.</p>
+                        </div>`;
+                } else {
+                    roomsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon">🏢</div>
+                            <h3>등록된 회의실이 없습니다.</h3>
+                            <p>다른 층을 선택해주세요.</p>
+                        </div>`;
+                }
+                return;
+            }
+
+            const currentPct = currentTimelineData.current_time_percent;
+
+            rooms.forEach(room => {
+                const row = document.createElement('div');
+                row.className = 'room-row';
+
+                // Sticky Info Cell
+                const infoCell = document.createElement('div');
+                infoCell.className = 'room-info-cell';
+                infoCell.innerHTML = `
+                    <div class="room-title-line">
+                        ${room.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
+                        <span class="room-name" title="${escapeHtml(room.name)}">${escapeHtml(room.name)}</span>
+                    </div>
+                    <div class="room-meta-line">
+                        <span class="now-status-dot ${room.is_available_now ? 'avail' : 'busy'}" title="${escapeHtml(room.status_text)}"></span>
+                        ${room.capacity ? `<span class="capacity-pill">${room.capacity}인</span>` : ''}
+                    </div>
+                `;
+                row.appendChild(infoCell);
+
+                // Timeline Track Cell
+                const trackCell = document.createElement('div');
+                trackCell.className = 'timeline-track-cell';
+
+                // Vertical Current Time Marker
+                if (typeof currentPct === 'number' && currentPct >= 0 && currentPct <= 100) {
+                    const marker = document.createElement('div');
+                    marker.className = 'current-time-marker';
+                    marker.style.left = `${currentPct}%`;
+                    trackCell.appendChild(marker);
+                }
+
+                // Reservation Blocks
+                if (Array.isArray(room.reservations)) {
+                    room.reservations.forEach(res => {
+                        const block = document.createElement('div');
+                        block.className = 'res-block';
+                        block.style.left = `${res.left_percent}%`;
+                        block.style.width = `${res.width_percent}%`;
+                        block.setAttribute('role', 'button');
+                        block.setAttribute('tabindex', '0');
+                        block.setAttribute('aria-label', `예약: ${res.start_time}~${res.end_time} ${res.reserver_name || ''} ${res.meeting_title || ''}`);
+
+                        const timeSpan = document.createElement('div');
+                        timeSpan.className = 'block-time';
+                        timeSpan.textContent = `${res.start_time} - ${res.end_time}`;
+                        block.appendChild(timeSpan);
+
+                        if (res.reserver_name || res.meeting_title) {
+                            const titleSpan = document.createElement('div');
+                            titleSpan.className = 'block-title';
+                            titleSpan.textContent = [res.reserver_name, res.meeting_title].filter(Boolean).join(' · ');
+                            block.appendChild(titleSpan);
+                        }
+
+                        // Click to open detail
+                        block.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            openDetailModal(room, res);
+                        });
+
+                        trackCell.appendChild(block);
+                    });
+                }
+
+                row.appendChild(trackCell);
+                roomsContainer.appendChild(row);
+            });
+        }
+
+        // Change Floor / Asset
+        function onAssetChange(assetId) {
+            if (!assetId) return;
+            loadTimelineData(assetId);
+        }
+
+        // Filter Toggle ('all' vs 'fav')
+        function setFilter(type) {
+            currentFilter = type;
+            document.getElementById('filter-all-btn').classList.toggle('active', type === 'all');
+            document.getElementById('filter-fav-btn').classList.toggle('active', type === 'fav');
+            renderRooms();
+        }
+
+        // Modal Operations
+        function openDetailModal(room, res) {
+            modalRoomName.textContent = room.name;
+            modalRoomMeta.textContent = room.capacity ? `정원: ${room.capacity}인실` : '슈어소프트테크 회의실';
+            modalTimeRange.textContent = `${res.start_time} ~ ${res.end_time}`;
+            modalReserverName.textContent = res.reserver_name || '(비공개 또는 미등록)';
+            modalMeetingTitle.textContent = res.meeting_title || '(제목 없음)';
+
+            detailModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeDetailModal() {
+            detailModal.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        function onBackdropClick(e) {
+            if (e.target === detailModal) {
+                closeDetailModal();
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && detailModal.classList.contains('active')) {
+                closeDetailModal();
+            }
+        });
+
+        // Error Banner Display
+        function showError(msg) {
+            errorText.textContent = msg;
+            errorContainer.style.display = 'block';
+        }
+
+        function hideError() {
+            errorContainer.style.display = 'none';
+        }
+
+        // Helper: escape HTML
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    </script>
 </body>
 </html>

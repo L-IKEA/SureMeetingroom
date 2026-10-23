@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 import secrets
@@ -6,7 +7,7 @@ import threading
 import time
 from typing import Dict, List
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from meeting_room_bot.account_link.session_store import link_session_store, web_session_store
 from meeting_room_bot.account_link.token_service import token_service
@@ -14,6 +15,7 @@ from meeting_room_bot.auth.session_manager import session_manager
 from meeting_room_bot.config import get_config
 from meeting_room_bot.groupware.client import GroupwareAuthError, GroupwareClient, GroupwareError
 from meeting_room_bot.models.user_key import UserKey
+from meeting_room_bot.providers import QueryStatus, get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -256,12 +258,12 @@ def create_app() -> FastAPI:
 
     @app.get("/timeline", response_class=HTMLResponse)
     async def get_timeline_page(request: Request):
-        """Protected /timeline placeholder verifying active WebSession and Groupware session."""
+        """Protected Meeting Room Timeline Web App."""
         config = get_config()
         web_session_id = request.cookies.get(config.web_session_cookie_name)
         if not web_session_id:
             logger.warning("[account_link] Unauthorized access to /timeline: missing web session cookie.")
-            html = render_html("error.html", {"message": "인증되지 않은 접근입니다. Telegram을 통해 계정을 먼저 연결해주세요."})
+            html = render_html("error.html", {"message": "인증되지 않은 접근입니다. 계정을 먼저 연결해주세요."})
             return HTMLResponse(content=html, status_code=401)
 
         web_session = web_session_store.get_web_session(web_session_id)
@@ -279,10 +281,98 @@ def create_app() -> FastAPI:
             response.delete_cookie(key=config.web_session_cookie_name, path="/")
             return response
 
+        # Query timeline data via Provider
+        asset_id_param = request.query_params.get("asset_id")
+        target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
+
+        provider = get_provider()
+        result = await asyncio.to_thread(provider.get_timeline, user_id=web_session.user_key, asset_id=target_asset_id)
+
+        error_message = ""
+        initial_data = {}
+
+        if result.status == QueryStatus.SESSION_EXPIRED:
+            logger.warning(f"[account_link] Groupware session expired for {web_session.user_key} on /timeline")
+            web_session_store.remove_web_session(web_session_id)
+            html = render_html("error.html", {"message": "계정 연결이 만료되었습니다. 다시 연결해 주세요."})
+            response = HTMLResponse(content=html, status_code=401)
+            response.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return response
+        elif result.status == QueryStatus.NOT_AUTHENTICATED:
+            html = render_html("error.html", {"message": "계정 연결이 필요합니다."})
+            return HTMLResponse(content=html, status_code=401)
+        elif result.status == QueryStatus.NETWORK_ERROR:
+            error_message = "회의실 정보를 불러오지 못했습니다. 네트워크 상태를 확인해주세요."
+        elif result.status == QueryStatus.SUCCESS:
+            initial_data = result.data
+        else:
+            error_message = "회의실 정보를 불러오지 못했습니다."
+
         html = render_html("timeline.html", {
             "user_display": web_session.user_key.to_string(),
+            "initial_data_json": json.dumps(initial_data, ensure_ascii=False),
+            "error_message": error_message,
         })
         return HTMLResponse(content=html)
+
+    @app.get("/api/web/timeline")
+    async def get_web_timeline_api(request: Request):
+        """Web App JSON API for dynamic timeline query and floor switching."""
+        config = get_config()
+        web_session_id = request.cookies.get(config.web_session_cookie_name)
+        if not web_session_id:
+            return JSONResponse(
+                content={"error": "인증되지 않은 접근입니다. 계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+
+        web_session = web_session_store.get_web_session(web_session_id)
+        if not web_session:
+            return JSONResponse(
+                content={"error": "웹 세션이 만료되었습니다. 다시 계정을 연결해주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+
+        if not session_manager.has_session(web_session.user_key):
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+
+        asset_id_param = request.query_params.get("asset_id")
+        target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
+
+        provider = get_provider()
+        result = await asyncio.to_thread(provider.get_timeline, user_id=web_session.user_key, asset_id=target_asset_id)
+
+        if result.status == QueryStatus.SUCCESS:
+            return JSONResponse(content=result.data, status_code=200)
+        elif result.status == QueryStatus.SESSION_EXPIRED:
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+        elif result.status == QueryStatus.NOT_AUTHENTICATED:
+            return JSONResponse(
+                content={"error": "계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+        elif result.status == QueryStatus.NETWORK_ERROR:
+            return JSONResponse(
+                content={"error": "회의실 정보를 불러오지 못했습니다.", "code": "NETWORK_ERROR"},
+                status_code=502,
+            )
+        else:
+            return JSONResponse(
+                content={"error": "회의실 정보를 불러오지 못했습니다.", "code": "GROUPWARE_ERROR"},
+                status_code=500,
+            )
 
     @app.post("/logout")
     async def process_logout(request: Request):
