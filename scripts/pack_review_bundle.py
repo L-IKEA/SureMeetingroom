@@ -304,7 +304,7 @@ This review bundle contains the complete, curated, and independently testable se
 ### 2) API Validation Hardening (`GET /api/web/availability`)
 - Validates `start` / `start_time` strictly as `HH:MM` format (`00:00`~`23:59`).
 - Validates `duration_minutes` / `duration` strictly as integer between `15` and `480` minutes.
-- Returns `HTTP 400` with `{"error": ..., "code": "INVALID_PARAMS"}` on malformed/out-of-range values.
+- Returns `HTTP 400` with `{{"error": ..., "code": "INVALID_PARAMS"}}` on malformed/out-of-range values.
 
 ### 3) Core UX & Security Preserved
 - 100% preservation of NOW, WHEN, and TIMELINE core capabilities.
