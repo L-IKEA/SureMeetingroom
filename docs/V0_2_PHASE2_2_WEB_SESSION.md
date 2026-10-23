@@ -57,19 +57,19 @@ Phase 2.2에서는 다음을 구현하여 이 문제를 근본적으로 해결�
        | 4. 사용자 ID / PW 입력 후 Form 제출 (POST /link/login)
        v
 +-----------------------------------------------------------------------------------------+
-| FastAPI Server: process_session_login                                                   |
-|   - LinkSession 쿠키 확인                                                               |
+| FastAPI Server: process_login (Atomic Replay Prevention & Groupware Auth)                |
+|   - LinkSession 쿠키 확인 및 세션 조회 (만료/부재 시 400 거부)                           |
 |   - secrets.compare_digest(session.csrf_token, form.csrf_token) 검증 (불일치 시 403 차단)|
-|   - IP Rate Limit 확인 (request.client.host 기반)                                       |
+|   - IP Rate Limit 확인 (request.client.host 기반, 초과 시 429 차단)                      |
+|   - LinkSession atomic consume (동시 Replay 방지: 그룹웨어 API 호출 전 단 1개 요청만 성공)|
 |   - asyncio.to_thread(client.login, username, password) 비차단 그룹웨어 인증 시도       |
 |   - [성공 시]                                                                           |
 |       * session_manager.set_client(user_key, client) 등록                               |
-|       * LinkSession 폐기 및 LinkSession 쿠키 삭제                                       |
 |       * WebSession 생성 (session_id, user_key, expires_at: 86400초)                     |
 |       * meetingroom_web_session 쿠키 발급 (Path=/, HttpOnly, SameSite=Lax)               |
 |       * 303 See Other Redirect -> /timeline                                             |
 |   - [실패 시]                                                                           |
-|       * LinkSession 폐기 및 400 에러 페이지 (Telegram 재발급 안내)                      |
+|       * 400 에러 페이지 (Telegram 재발급 안내) 및 쿠키 정리                              |
 |       * 비밀번호/토큰은 파일, DB, 세션, 로그 어디에도 저장되지 않음                      |
 +-----------------------------------------------------------------------------------------+
        |

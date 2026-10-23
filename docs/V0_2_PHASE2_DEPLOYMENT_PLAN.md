@@ -101,7 +101,7 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
 ## 4. HTTPS Architecture & Account Linking Target Flow
 
 ### 4.1 HTTPS 전환 목표 구조
-- **기존 (로컬)**: `http://localhost:8000/link/<token>` (터미널 복사 방식)
+- **기존 (로컬)**: `http://localhost:8000/link/<token>`
 - **운영 (HTTPS)**: `https://<approved-domain>/link/<token>` (텔레그램 인라인 버튼 클릭 방식)
 
 ```text
@@ -124,21 +124,27 @@ Telegram Bot 핸들러가 토큰을 생성한 프로세스와 브라우저가 `/
          | 3. HTTP Proxy Pass (Internal Port 8000, 1 Uvicorn Worker)
          v
 +-----------------------------------------------------------------------------------------+
-| FastAPI Account Link Server                                                             |
-|   - Response Headers: Referrer-Policy: no-referrer, Cache-Control: no-store, X-Frame-Options: DENY
-|   - GET /link/{token} -> HTML 로그인 폼 렌더링                                          |
-|   - POST /link/{token} -> Token 소각, IP Rate Limit 확인 및 Groupware API 로그인 (to_thread)
+| FastAPI Account Link & Web Session Server (Phase 2.2 Implemented)                       |
+|   - Response Headers: Referrer-Policy: no-referrer, Cache-Control: no-store, CSP        |
+|   - GET /link/{token} -> Token 즉시 소각, LinkSession 생성, HttpOnly Cookie 발급        |
+|   - 303 Redirect -> /link/login (브라우저 주소창에서 one-time token 파라미터 완전 제거) |
+|   - GET /link/login -> LinkSession 검증 및 CSRF 토큰 주입된 로그인 폼 렌더링             |
+|   - POST /link/login -> CSRF 검증, Rate Limit 확인, LinkSession atomic 소각             |
+|                         Groupware API 로그인 (asyncio.to_thread 격리)                   |
 |   - 인증 성공 -> session_manager.set_client(user_key, client) 등록                      |
-|   - 완료 페이지 렌더링 ("로그인 완료! 텔레그램으로 돌아가세요.")                        |
+|                  WebSession 생성 (meetingroom_web_session Cookie 발급)                  |
+|                  303 Redirect -> /timeline                                              |
+|   - GET /timeline -> WebSession 및 Groupware 세션 이중 검증 후 화면 표시                 |
+|   - POST /logout -> WebSession 파기, Groupware 세션 제거, 쿠키 삭제                      |
 +-----------------------------------------------------------------------------------------+
          |
-         | 4. UserKey 기반 세션 메모리 등록
+         | 4. UserKey 기반 세션 메모리 공유 및 사내 서비스 연동
          v
 +-----------------------------------------------------------------------------------------+
-| Telegram Bot Application (Same Process / Shared Memory)                                 |
-|   - 사용자가 텔레그램으로 복귀하여 메뉴 버튼 탭                                         |
+| Telegram Bot & Web Timeline Application (Same Process / Shared Memory)                  |
+|   - 텔레그램 및 향후 Web UI 모두 동일한 UserSessionManager / Provider 계층 재사용       |
 |   - session_manager.has_session(user_key) -> True 확인                                  |
-|   - 회의실 현황 즉시 조회 성공                                                          |
+|   - 회의실 현황 즉시 조회 및 타임라인 연동 지원                                         |
 +-----------------------------------------------------------------------------------------+
 ```
 

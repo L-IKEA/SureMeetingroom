@@ -21,10 +21,13 @@ Covers:
 12. LinkSession and WebSession TTL expiration
 """
 
+import concurrent.futures
 from datetime import datetime, timedelta, timezone
+import logging
 import os
 import re
-from unittest.mock import AsyncMock, patch
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 import pytest
@@ -97,6 +100,24 @@ class TestTokenExchangeAndLinkSession:
         resp2 = client.get(f"/link/{tok}", follow_redirects=False)
         assert resp2.status_code == 400
         assert "유효하지 않거나 이미 만료된 계정 연결 링크입니다" in resp2.text
+
+    def test_post_link_token_legacy_route_rejected_with_zero_login_calls(self):
+        """Direct POST /link/{token} is completely removed and rejected with 405 (0 Groupware calls)."""
+        client = TestClient(app)
+        user_key = UserKey("telegram", "legacy_forbidden_user")
+        tok = token_service.create_token(user_key)
+
+        with patch.object(GroupwareClient, "login", autospec=True) as mock_login:
+            resp = client.post(
+                f"/link/{tok}",
+                data={"username": "user", "password": "password"},
+                follow_redirects=False,
+            )
+
+            # FastAPI returns 405 Method Not Allowed because only GET is routed on /link/{token}
+            assert resp.status_code in (404, 405)
+            # GroupwareClient.login must NEVER be called
+            assert mock_login.call_count == 0
 
     def test_redirect_followed_clears_token_from_browser_url(self):
         """When following redirect, browser arrives at /link/login with 200 and zero token in URL."""
@@ -224,6 +245,94 @@ class TestLoginExecutionAndWebSession:
             assert secret_pw not in str(ls)
         for _, ws in web_session_store._sessions.items():
             assert secret_pw not in str(ws)
+
+    def test_concurrent_replay_prevention_single_winner(self):
+        """Simultaneous POST /link/login with identical cookie & CSRF yields exactly 1 success and 1 rejection."""
+        user_key = UserKey("telegram", "concurrent_replay_user")
+        session = link_session_store.create_link_session(user_key)
+
+        login_calls = []
+
+        def mock_login_with_delay(self, username, password):
+            login_calls.append(1)
+            time.sleep(0.05)  # simulate Groupware network delay
+            self._is_authenticated = True
+            return True
+
+        def submit_login():
+            c = TestClient(app)
+            return c.post(
+                "/link/login",
+                data={"username": "emp_conc", "password": "conc_password", "csrf_token": session.csrf_token},
+                cookies={LINK_SESSION_COOKIE_NAME: session.session_id},
+                follow_redirects=False,
+            )
+
+        with patch.object(GroupwareClient, "login", side_effect=mock_login_with_delay, autospec=True):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                f1 = executor.submit(submit_login)
+                f2 = executor.submit(submit_login)
+                res1 = f1.result()
+                res2 = f2.result()
+
+        status_codes = sorted([res1.status_code, res2.status_code])
+        # Exactly one 303 (success) and one 400 (replay rejection)
+        assert status_codes == [303, 400], f"Expected [303, 400] but got {status_codes}"
+
+        # GroupwareClient.login must be called EXACTLY ONCE
+        assert len(login_calls) == 1, f"GroupwareClient.login called {len(login_calls)} times! Expected exactly 1."
+
+        # Exactly 1 WebSession created
+        assert len(web_session_store._sessions) == 1
+        assert session_manager.has_session(user_key) is True
+
+    def test_sensitive_credentials_and_tokens_not_in_application_logs(self, caplog):
+        """Verify plain passwords and one-time tokens never appear in application logs."""
+        caplog.set_level(logging.DEBUG)
+
+        client = TestClient(app)
+        user_key = UserKey("telegram", "audit_log_user")
+        secret_token = token_service.create_token(user_key)
+        secret_pw = "VERY_CONFIDENTIAL_PASS_12345!"
+
+        # 1. Token Exchange
+        resp_get = client.get(f"/link/{secret_token}", follow_redirects=False)
+        assert resp_get.status_code == 303
+        link_cookie = resp_get.cookies.get(LINK_SESSION_COOKIE_NAME)
+
+        # 2. Form view
+        resp_form = client.get("/link/login", cookies={LINK_SESSION_COOKIE_NAME: link_cookie})
+        csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text).group(1)
+
+        def mock_login(self, username, password):
+            self._is_authenticated = True
+            return True
+
+        # 3. Post login
+        with patch.object(GroupwareClient, "login", side_effect=mock_login, autospec=True):
+            resp_post = client.post(
+                "/link/login",
+                data={"username": "audit_user", "password": secret_pw, "csrf_token": csrf},
+                cookies={LINK_SESSION_COOKIE_NAME: link_cookie},
+                follow_redirects=False,
+            )
+            assert resp_post.status_code == 303
+
+        # 4. Timeline view
+        web_cookie = resp_post.cookies.get(WEB_SESSION_COOKIE_NAME)
+        resp_tl = client.get("/timeline", cookies={WEB_SESSION_COOKIE_NAME: web_cookie})
+        assert resp_tl.status_code == 200
+
+        # Verify application log messages specifically (meeting_room_bot package logs)
+        app_log_text = "\n".join(
+            record.getMessage()
+            for record in caplog.records
+            if record.name.startswith("meeting_room_bot")
+        )
+        assert secret_pw not in app_log_text, "Password leaked into application logs!"
+        assert secret_token not in app_log_text, "One-time token leaked into application logs!"
+        assert link_cookie not in app_log_text, "LinkSession ID leaked into application logs!"
+        assert web_cookie not in app_log_text, "WebSession ID leaked into application logs!"
 
 
 class TestProtectedTimelineEndpoint:

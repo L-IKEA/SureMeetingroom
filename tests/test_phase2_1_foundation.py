@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import time
@@ -25,6 +26,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 import pytest
+
+
+def _phase2_2_login_attempt(client, token, username="u", password="p", headers=None):
+    """Execute official Phase 2.2 exchange -> CSRF -> login attempt."""
+    resp_get = client.get(f"/link/{token}", follow_redirects=False)
+    if resp_get.status_code != 303:
+        return resp_get
+    cookie = resp_get.cookies.get("meetingroom_link_session")
+    resp_form = client.get("/link/login", cookies={"meetingroom_link_session": cookie})
+    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text)
+    csrf = match.group(1) if match else ""
+    return client.post(
+        "/link/login",
+        data={"username": username, "password": password, "csrf_token": csrf},
+        cookies={"meetingroom_link_session": cookie},
+        headers=headers or {},
+        follow_redirects=False,
+    )
 
 from meeting_room_bot.account_link.app import (
     app,
@@ -144,7 +163,7 @@ class TestUserKeyNamespacePreservation:
         assert svc._tokens[tok_ka].user_id == "kakao:123"
 
     def test_account_link_roundtrip_restores_userkey_in_session_mgr(self):
-        """FastAPI POST /link/{token} restores UserKey before binding to session_mgr."""
+        """FastAPI token exchange and login restores UserKey before binding to session_mgr."""
         client = TestClient(app)
         user_key = UserKey("telegram", "rt_user_777")
         tok = token_service.create_token(user_key)
@@ -154,9 +173,9 @@ class TestUserKeyNamespacePreservation:
             return True
 
         with patch.object(GroupwareClient, "login", new=mock_login):
-            resp = client.post(f"/link/{tok}", data={"username": "testuser", "password": "pw"})
-            assert resp.status_code == 200
-            assert "연결 완료" in resp.text
+            resp = _phase2_2_login_attempt(client, tok, username="testuser", password="pw")
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/timeline"
 
             # Verify session_mgr has active session for this exact UserKey
             assert session_manager.has_session(user_key) is True
@@ -445,12 +464,12 @@ class TestRateLimitingAndSecurityHeaders:
             # 3 attempts
             for i in range(3):
                 tok = token_service.create_token(UserKey("telegram", f"rl_{i}"))
-                resp = client.post(f"/link/{tok}", data={"username": "u", "password": "p"})
+                resp = _phase2_2_login_attempt(client, tok, username="u", password="p")
                 assert resp.status_code == 400
 
             # 4th attempt from same client IP -> 429
             tok_exceed = token_service.create_token(UserKey("telegram", "rl_exceed"))
-            resp_exceed = client.post(f"/link/{tok_exceed}", data={"username": "u", "password": "p"})
+            resp_exceed = _phase2_2_login_attempt(client, tok_exceed, username="u", password="p")
             assert resp_exceed.status_code == 429
             assert "시도 횟수가 너무 많습니다" in resp_exceed.text
 
@@ -464,17 +483,17 @@ class TestRateLimitingAndSecurityHeaders:
         with patch.dict(os.environ, {"RATE_LIMIT_LOGIN_PER_MINUTE": "2"}):
             # 1st attempt with fake IP 1.1.1.1
             tok1 = token_service.create_token(UserKey("telegram", "spoof_1"))
-            resp1 = client.post(f"/link/{tok1}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "1.1.1.1"})
+            resp1 = _phase2_2_login_attempt(client, tok1, username="u", password="p", headers={"X-Forwarded-For": "1.1.1.1"})
             assert resp1.status_code == 400
 
             # 2nd attempt with fake IP 2.2.2.2
             tok2 = token_service.create_token(UserKey("telegram", "spoof_2"))
-            resp2 = client.post(f"/link/{tok2}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "2.2.2.2"})
+            resp2 = _phase2_2_login_attempt(client, tok2, username="u", password="p", headers={"X-Forwarded-For": "2.2.2.2"})
             assert resp2.status_code == 400
 
             # 3rd attempt with fake IP 3.3.3.3 -> MUST be blocked with 429 because actual client IP is identical!
             tok3 = token_service.create_token(UserKey("telegram", "spoof_3"))
-            resp3 = client.post(f"/link/{tok3}", data={"username": "u", "password": "p"}, headers={"X-Forwarded-For": "3.3.3.3"})
+            resp3 = _phase2_2_login_attempt(client, tok3, username="u", password="p", headers={"X-Forwarded-For": "3.3.3.3"})
             assert resp3.status_code == 429
             assert "시도 횟수가 너무 많습니다" in resp3.text
 
@@ -520,7 +539,7 @@ class TestLoginFailureUXAndBurnOnUse:
 
         # Attempt login with failing credentials
         with patch.object(GroupwareClient, "login", return_value=False):
-            resp = client.post(f"/link/{tok}", data={"username": "wrong_user", "password": "wrong_password"})
+            resp = _phase2_2_login_attempt(client, tok, "wrong_user", "bad_pw")
 
         assert resp.status_code == 400
 

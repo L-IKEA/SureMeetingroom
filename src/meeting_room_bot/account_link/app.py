@@ -149,39 +149,46 @@ def create_app() -> FastAPI:
             html = render_html("error.html", {"message": "계정 연결 세션이 만료되었습니다. Telegram에서 새로운 연결 링크를 발급받아 주세요."})
             return HTMLResponse(content=html, status_code=400)
 
-        # 2. Strict CSRF verification using constant-time comparison
+        # 2. Strict CSRF verification using constant-time comparison (before consume to prevent session burning on forged CSRF)
         if not csrf_token or not secrets.compare_digest(link_session.csrf_token, csrf_token):
             logger.warning(f"[account_link] CSRF mismatch for user_key={link_session.user_key.to_string()}")
             html = render_html("error.html", {"message": "CSRF 검증에 실패했습니다. 유효하지 않은 요청입니다."})
             return HTMLResponse(content=html, status_code=403)
 
-        # 3. Check IP rate limit strictly using request.client.host
+        # 3. Check IP rate limit strictly using request.client.host (before consume to prevent session burning on rate limit)
         client_ip = request.client.host if request.client else "127.0.0.1"
         if not check_ip_rate_limit(client_ip, config.rate_limit_login_per_minute):
             logger.warning(f"[account_link] Rate limit exceeded for IP={client_ip}")
             html = render_html("error.html", {"message": "로그인 시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요."})
             return HTMLResponse(content=html, status_code=429)
 
-        # 4. Attempt Groupware login in worker thread to prevent event-loop blocking
+        # 4. Atomically consume LinkSession before external Groupware API call
+        # Guarantees that only a single concurrent request acquires session ownership.
+        consumed_session = link_session_store.consume_link_session(link_session_id)
+        if not consumed_session:
+            logger.warning(f"[account_link] Concurrent replay or already consumed link session: {link_session_id}")
+            html = render_html("error.html", {"message": "이미 사용되었거나 처리 중인 요청입니다. 다시 시도해주세요."})
+            response = HTMLResponse(content=html, status_code=400)
+            response.delete_cookie(key=config.link_session_cookie_name, path="/link")
+            return response
+
+        # 5. Attempt Groupware login in worker thread to prevent event-loop blocking
         client = GroupwareClient()
         try:
             success = await asyncio.to_thread(client.login, username=username, password=password)
         except (GroupwareAuthError, GroupwareError) as e:
-            logger.warning(f"[account_link] Groupware login failed for user_key={link_session.user_key}: {e}")
+            logger.warning(f"[account_link] Groupware login failed for user_key={consumed_session.user_key}: {e}")
             success = False
         except Exception as e:
-            logger.error(f"[account_link] Unexpected error during login for user_key={link_session.user_key}: {e}", exc_info=True)
+            logger.error(f"[account_link] Unexpected error during login for user_key={consumed_session.user_key}: {e}", exc_info=True)
             success = False
 
-        # 5. Handle login result
+        # 6. Handle login result
         if success:
-            user_key = link_session.user_key
+            user_key = consumed_session.user_key
             # Register authenticated GroupwareClient session in core UserSessionManager
             session_manager.set_client(user_key, client)
             logger.info(f"[account_link] Successfully linked Groupware session for user_key: {user_key.to_string()}")
-
-            # Consume pre-login LinkSession
-            link_session_store.consume_link_session(link_session_id)
 
             # Issue authenticated WebSession for /timeline access
             web_session = web_session_store.create_web_session(
@@ -203,8 +210,6 @@ def create_app() -> FastAPI:
             response.delete_cookie(key=config.link_session_cookie_name, path="/link")
             return response
         else:
-            # On failure, consume pre-login LinkSession to prevent re-attempts with consumed state
-            link_session_store.consume_link_session(link_session_id)
             html = render_html("error.html", {"message": "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해주세요."})
             response = HTMLResponse(content=html, status_code=400)
             response.delete_cookie(key=config.link_session_cookie_name, path="/link")
@@ -244,50 +249,6 @@ def create_app() -> FastAPI:
             secure=config.is_secure_cookie,
         )
         return response
-
-    # -----------------------------------------------------------------------
-    # Transition Compatibility: POST /link/{token} for v0.1 tests
-    # -----------------------------------------------------------------------
-
-    @app.post("/link/{token}", response_class=HTMLResponse)
-    async def process_legacy_token_login(
-        request: Request,
-        token: str,
-        username: str = Form(...),
-        password: str = Form(...),
-    ):
-        """Legacy direct POST /link/{token} preserved for backward compatibility with v0.1 tests."""
-        client_ip = request.client.host if request.client else "127.0.0.1"
-        config = get_config()
-        if not check_ip_rate_limit(client_ip, config.rate_limit_login_per_minute):
-            logger.warning(f"[account_link] Rate limit exceeded for IP={client_ip}")
-            html = render_html("error.html", {"message": "로그인 시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요."})
-            return HTMLResponse(content=html, status_code=429)
-
-        user_id = token_service.consume_token(token)
-        if not user_id:
-            html = render_html("error.html", {"message": "유효하지 않거나 이미 만료된 계정 연결 링크입니다."})
-            return HTMLResponse(content=html, status_code=400)
-
-        client = GroupwareClient()
-        try:
-            success = await asyncio.to_thread(client.login, username=username, password=password)
-        except (GroupwareAuthError, GroupwareError) as e:
-            logger.warning(f"[account_link] Groupware login failed for user_id={user_id}: {e}")
-            success = False
-        except Exception as e:
-            logger.error(f"[account_link] Unexpected error during login for user_id={user_id}: {e}", exc_info=True)
-            success = False
-
-        if success:
-            user_key = UserKey.from_any(user_id)
-            session_manager.set_client(user_key, client)
-            logger.info(f"[account_link] Successfully linked Groupware session for user_key: {user_key.to_string()}")
-            html = render_html("success.html")
-            return HTMLResponse(content=html)
-        else:
-            html = render_html("error.html", {"message": "로그인에 실패했습니다. 아이디 또는 비밀번호를 확인해주세요."})
-            return HTMLResponse(content=html, status_code=400)
 
     # -----------------------------------------------------------------------
     # Phase 2.2 Protected Timeline Placeholder & Logout

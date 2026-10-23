@@ -24,6 +24,10 @@ from meeting_room_bot.providers.real_provider import RealMeetingRoomProvider
 from meeting_room_bot.telegram.handlers import button_callback, set_query_provider
 
 
+import re
+from meeting_room_bot.account_link.session_store import link_session_store, web_session_store
+
+
 def mock_login_success(self, username, password):
     self._is_authenticated = True
     return True
@@ -32,6 +36,22 @@ def mock_login_success(self, username, password):
 def mock_login_fail(self, username, password):
     self._is_authenticated = False
     return False
+
+
+def _perform_phase2_2_login(client_app, token, username, password):
+    """Execute official Phase 2.2 token exchange -> CSRF -> login flow."""
+    resp_get = client_app.get(f"/link/{token}", follow_redirects=False)
+    assert resp_get.status_code == 303
+    cookie = resp_get.cookies.get("meetingroom_link_session")
+    resp_form = client_app.get("/link/login", cookies={"meetingroom_link_session": cookie})
+    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text)
+    csrf = match.group(1) if match else ""
+    return client_app.post(
+        "/link/login",
+        data={"username": username, "password": password, "csrf_token": csrf},
+        cookies={"meetingroom_link_session": cookie},
+        follow_redirects=False,
+    )
 
 
 class TestAccountLinkTokenService:
@@ -87,13 +107,15 @@ class TestFastAPIAccountLinkEndpoints:
 
         with patch("meeting_room_bot.account_link.app.session_manager", session_mgr):
             with patch.object(GroupwareClient, "login", side_effect=mock_login_success, autospec=True):
-                response = client_app.post(
-                    f"/link/{token}",
-                    data={"username": "valid_user", "password": "valid_password"},
+                response = _perform_phase2_2_login(
+                    client_app,
+                    token,
+                    "valid_user",
+                    "valid_pw",
                 )
 
-                assert response.status_code == 200
-                assert "그룹웨어 계정 연결 완료" in response.text
+                assert response.status_code == 303
+                assert response.headers["location"] == "/timeline"
                 assert session_mgr.has_session("user_success") is True
 
     def test_7_login_failure_does_not_save_session(self, client_app):
@@ -103,9 +125,11 @@ class TestFastAPIAccountLinkEndpoints:
 
         with patch("meeting_room_bot.account_link.app.session_manager", session_mgr):
             with patch.object(GroupwareClient, "login", side_effect=mock_login_fail, autospec=True):
-                response = client_app.post(
-                    f"/link/{token}",
-                    data={"username": "wrong_user", "password": "wrong_password"},
+                response = _perform_phase2_2_login(
+                    client_app,
+                    token,
+                    "wrong_user",
+                    "wrong_pw",
                 )
 
                 assert response.status_code == 400
@@ -115,16 +139,25 @@ class TestFastAPIAccountLinkEndpoints:
     def test_8_password_is_not_stored(self, client_app):
         """Test 8: Password is not stored anywhere in memory variables, tokens, or session objects."""
         token = token_service.create_token("user_pass_check", ttl_seconds=600)
+        custom_token_val = "DUMMY_CUSTOM_VAL_999"
 
         with patch.object(GroupwareClient, "login", side_effect=mock_login_success, autospec=True):
-            client_app.post(
-                f"/link/{token}",
-                data={"username": "testuser", "password": "SECRET_PASSWORD_999"},
+            _perform_phase2_2_login(
+                client_app,
+                token,
+                "testuser",
+                custom_token_val,
             )
 
         # Check TokenData does not contain password
         for _, tdata in token_service._tokens.items():
-            assert "SECRET_PASSWORD_999" not in str(tdata)
+            assert custom_token_val not in str(tdata)
+
+        # Check LinkSession and WebSession stores do not contain password
+        for _, lsession in link_session_store._sessions.items():
+            assert custom_token_val not in str(lsession)
+        for _, wsession in web_session_store._sessions.items():
+            assert custom_token_val not in str(wsession)
 
     def test_9_10_11_user_a_b_distinct_sessions(self, client_app):
         """Test 9, 10, 11: User A & User B distinct sessions."""
@@ -135,8 +168,8 @@ class TestFastAPIAccountLinkEndpoints:
 
         with patch("meeting_room_bot.account_link.app.session_manager", session_mgr):
             with patch.object(GroupwareClient, "login", side_effect=mock_login_success, autospec=True):
-                client_app.post(f"/link/{token_a}", data={"username": "userA", "password": "pwA"})
-                client_app.post(f"/link/{token_b}", data={"username": "userB", "password": "pwB"})
+                _perform_phase2_2_login(client_app, token_a, username="userA", password="pwA")
+                _perform_phase2_2_login(client_app, token_b, username="userB", password="pwB")
 
         assert session_mgr.has_session("user_A") is True
         assert session_mgr.has_session("user_B") is True

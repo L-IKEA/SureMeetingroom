@@ -3,6 +3,7 @@
 import ast
 from dataclasses import fields
 from pathlib import Path
+import re
 import sys
 import pytest
 
@@ -505,12 +506,19 @@ class TestAccountLinkingIntegrationWithUserKey:
              patch("meeting_room_bot.account_link.app.token_service", token_svc), \
              patch.object(GroupwareClient, "login", side_effect=mock_login_success, autospec=True):
 
+            resp_get = client_app.get(f"/link/{token}", follow_redirects=False)
+            assert resp_get.status_code == 303
+            cookie = resp_get.cookies.get("meetingroom_link_session")
+            resp_form = client_app.get("/link/login", cookies={"meetingroom_link_session": cookie})
+            csrf = re.search(r'name="csrf_token"\s+value="([^"]+)"', resp_form.text).group(1)
             resp = client_app.post(
-                f"/link/{token}",
-                data={"username": "emp_suresoft", "password": "mock_password"},
+                "/link/login",
+                data={"username": "emp_suresoft", "password": "mock_password", "csrf_token": csrf},
+                cookies={"meetingroom_link_session": cookie},
+                follow_redirects=False,
             )
-            assert resp.status_code == 200
-            assert "연동 완료" in resp.text or "성공" in resp.text
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/timeline"
 
         # 3. Verify session is bound to Telegram UserKey
         assert session_mgr.has_session(uk_telegram) is True
