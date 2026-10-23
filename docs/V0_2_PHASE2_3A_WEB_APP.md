@@ -109,6 +109,22 @@ Content-Security-Policy: frame-ancestors 'none'
 > [!NOTE]
 > Phase 2.3B Telegram Mini App 연동 시 Telegram 내 iframe/WebView 로딩을 허용하기 위해 `X-Frame-Options` 및 CSP `frame-ancestors https://web.telegram.org` 정책 조정이 필요합니다. Phase 2.3A에서는 보안 원칙을 유지하기 위해 완화하지 않았으며, Phase 2.3B 어댑터 작업 시 선별적으로 조정됩니다.
 
+### 4.5 XSS Prevention & Template Autoescape Hardening
+- **Initial JSON Script Breakout 방지**:
+  - `render_html()`을 Jinja2 `Environment(autoescape=select_autoescape(['html', 'xml']))` 기반으로 전면 전환.
+  - JSON bootstrap은 `{{ initial_data | tojson }}` 필터를 적용하여 `<`, `>`, `&`, `'`가 `\u003c`, `\u003e`, `\u0026`, `\u0027`로 안전하게 직렬화됩니다.
+  - `</script><script>window.XSS=1</script>` 형태의 공격 문자열이 포함되더라도 `<script>` 태그 탈출이 구조적으로 불가능합니다.
+  - 브라우저 JS `JSON.parse()` 호출 시 정상적인 문자열(한글 회의명, 특수문자)로 원복 파싱됩니다.
+- **Template Variables Autoescape**:
+  - `{{ user_display }}` 등 모든 템플릿 변수가 자동으로 HTML escaping(`&lt;`, `&gt;`, `&amp;`) 처리되어 HTML Injection을 원천 차단합니다.
+- **초기 네트워크 오류 시 중복 API 호출 방지**:
+  - 초기 서버사이드 Groupware 조회 실패 시 `initial-error-data` 스크립트를 통해 에러를 전달하고, `DOMContentLoaded`에서 즉시 에러 배너를 노출한 뒤 자동 재호출을 중단합니다.
+  - 사용자가 `[다시 시도]` 버튼을 클릭했을 때만 비동기 API를 호출합니다.
+
+### 4.6 Clean UX & Debug Banner Removal
+- 디버그/레거시 안내 문구 `"Timeline UI는 다음 단계에서 제공됩니다 (v1)"` 및 일반 사용자에게 불필요한 내부 `UserKey` 문자열(`telegram:123...`) 노출을 전면 제거했습니다.
+- 헤더에 간결하고 직관적인 상태 배지(`🟢 연결됨`)만 최소 노출합니다.
+
 ---
 
 ## 5. Mobile-First UX Design
@@ -117,9 +133,12 @@ Content-Security-Policy: frame-ancestors 'none'
    - 360px ~ 430px 모바일 화면에서 시간축이 가로로 스크롤되더라도 회의실 이름, 정원, 지금 사용 가능 상태를 식별할 수 있도록 좌측 컬럼(`position: sticky; left: 0; z-index: 20`)을 고정했습니다.
 2. **Asia/Seoul 실시간 세로 인디케이터**:
    - 업무 시간(08:00 ~ 20:00) 기준 현재 시각을 나타내는 붉은색 세로 Indicator 라인 및 시각 배지(`11:05`)가 실시간 위치에 표시됩니다.
-3. **접근성 중심 시각 표현 (Accessibility-Focused)**:
+3. **가변 시간표 그리드 (Dynamic Hour Grid)**:
+   - CSS 배경 그리드가 12시간으로 하드코딩되지 않고 CSS Custom Property `--timeline-total-hours` 및 JS 동적 설정을 통해 `TIMELINE_START_HOUR`와 `TIMELINE_END_HOUR` 설정값에 맞춰 정확한 분할선 간격을 유지합니다.
+4. **접근성 중심 시각 표현 및 키보드 인터랙션 (Accessibility-Focused)**:
    - 색상(초록/빨강)뿐만 아니라 명확한 텍스트 배지(`🟢 지금 빈 회의실`, `🔴 사용 중 (14:00까지)`), 굵은 폰트, 외곽선(Border)을 병행하여 저시력자 및 색약자도 즉시 상태를 판별할 수 있습니다.
-4. **Detail Bottom Sheet / Modal**:
+   - 예약 블록에 `role="button"`, `tabindex="0"`을 적용하고 `Enter` 또는 `Space` 키 입력 시 예약 상세 Modal이 열리도록 키보드 인터랙션을 지원합니다.
+5. **Detail Bottom Sheet / Modal**:
    - 예약 블록을 클릭/터치하면 모바일에서는 하단에서 부드럽게 올라오는 Bottom Sheet, 데스크톱에서는 팝업 Modal 형태로 회의실 상세, 예약 시간, 예약자, 회의명을 표시합니다.
 
 ---
@@ -151,9 +170,10 @@ Groupware API 실제 응답 필드 분석에 기반하여 `Reservation` DTO를 �
 ## 8. Test & Quality Assurance
 
 - **Baseline Tests**: 기존 239건 전건 유지 및 통과 (`239 passed`)
-- **New Tests (Phase 2.3A)**: 22건 신규 단위 및 통합 테스트 작성 (`22 passed`)
-- **Total Tests**: `261 passed, 0 failed, 0 skipped`
-- **End-to-End Smoke Test**: `scripts/smoke_test_phase2_3a.py` 9단계 전 검증 통과
+- **Phase 2.3A Base Tests**: 22건 신규 단위 및 통합 테스트 작성 (`22 passed`)
+- **Phase 2.3A Hardening Tests**: 6건 신규 XSS 회귀, 접근성, 설정 그리드, 에러 제어 테스트 (`6 passed`)
+- **Total Tests**: `267 passed, 0 failed, 0 skipped`
+- **End-to-End Smoke Test**: `scripts/smoke_test_phase2_3a.py` 10단계 전 검증 통과 (XSS 인젝션 방어 검증 포함)
 
 ---
 

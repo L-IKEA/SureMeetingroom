@@ -27,6 +27,7 @@
             --indicator-color: #ef4444;
             --room-col-width: 130px;
             --timeline-min-width: 720px;
+            --timeline-total-hours: 12;
         }
 
         * {
@@ -108,26 +109,22 @@
             color: var(--text-main);
         }
 
-        /* Notice & Compatibility banner */
-        .system-banner {
-            background: #f1f5f9;
-            border-bottom: 1px solid var(--border-color);
-            padding: 6px 16px;
-            font-size: 11px;
-            color: var(--text-muted);
-            display: flex;
+        /* Header User Status Badge */
+        .status-indicator-badge {
+            font-size: 12px;
+            font-weight: 600;
+            color: #15803d;
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            display: inline-flex;
             align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 6px;
+            gap: 4px;
         }
 
-        .system-banner .badge {
-            background: #e2e8f0;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-weight: 600;
-            color: #334155;
+        .user-display-hidden {
+            display: none;
         }
 
         /* Controls Section */
@@ -407,7 +404,7 @@
                 var(--border-color) 0px,
                 var(--border-color) 1px,
                 transparent 1px,
-                transparent calc(100% / 12)
+                transparent calc(100% / var(--timeline-total-hours, 12))
             );
         }
 
@@ -688,6 +685,8 @@
                 </div>
             </div>
             <div class="header-right">
+                <span class="status-indicator-badge">🟢 연결됨</span>
+                <span id="user-display" class="user-display-hidden" style="display:none;" aria-hidden="true">{{ user_display }}</span>
                 <form method="POST" action="/logout">
                     <button type="submit" class="btn-logout" title="세션 종료">🚪 로그아웃</button>
                 </form>
@@ -695,16 +694,10 @@
         </div>
     </header>
 
-    <!-- System & Compatibility Notice -->
-    <div class="system-banner">
-        <span>계정 연결이 완료되었습니다: <strong>{{ user_display }}</strong></span>
-        <span class="badge">Timeline UI는 다음 단계에서 제공됩니다 (v1)</span>
-    </div>
-
     <!-- Error Alert Banner -->
-    <div id="error-container" style="max-width: 1200px; margin: 8px auto 0; padding: 0 16px; display: none;">
+    <div id="error-container" style="max-width: 1200px; margin: 8px auto 0; padding: 0 16px; {% if not error_message %}display: none;{% endif %}">
         <div class="error-banner">
-            <span id="error-text">회의실 정보를 불러오지 못했습니다.</span>
+            <span id="error-text">{{ error_message if error_message else "회의실 정보를 불러오지 못했습니다." }}</span>
             <button type="button" onclick="loadTimelineData()">다시 시도</button>
         </div>
     </div>
@@ -782,8 +775,9 @@
         </div>
     </div>
 
-    <!-- Initial Data Bootstrap (Zero sensitive credentials) -->
-    <script id="initial-timeline-data" type="application/json">{{ initial_data_json }}</script>
+    <!-- Initial Data & Error Bootstrap (Safe JSON serialization) -->
+    <script id="initial-timeline-data" type="application/json">{{ initial_data | tojson }}</script>
+    <script id="initial-error-data" type="application/json">{{ (error_message or '') | tojson }}</script>
 
     <!-- Web App Application Logic -->
     <script>
@@ -810,6 +804,22 @@
 
         // Initialize application on load
         document.addEventListener('DOMContentLoaded', () => {
+            // Check initial error from server bootstrap
+            const errorElem = document.getElementById('initial-error-data');
+            let initialError = '';
+            if (errorElem && errorElem.textContent.trim()) {
+                try {
+                    initialError = JSON.parse(errorElem.textContent);
+                } catch (e) {
+                    console.error('Failed to parse initial error data', e);
+                }
+            }
+
+            if (initialError) {
+                showError(initialError);
+                return; // Do NOT automatically call loadTimelineData()!
+            }
+
             const initialDataElem = document.getElementById('initial-timeline-data');
             let initialData = {};
             if (initialDataElem && initialDataElem.textContent.trim()) {
@@ -893,6 +903,9 @@
             hoursHeader.innerHTML = '';
             const totalHours = endHour - startHour;
             if (totalHours <= 0) return;
+
+            // Dynamically set CSS custom property so background grid matches exact totalHours
+            document.documentElement.style.setProperty('--timeline-total-hours', totalHours);
 
             for (let h = startHour; h <= endHour; h++) {
                 const pct = ((h - startHour) / totalHours) * 100;
@@ -1001,6 +1014,15 @@
                         block.addEventListener('click', (e) => {
                             e.stopPropagation();
                             openDetailModal(room, res);
+                        });
+
+                        // Keyboard support (Enter or Space) to open detail modal
+                        block.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openDetailModal(room, res);
+                            }
                         });
 
                         trackCell.appendChild(block);

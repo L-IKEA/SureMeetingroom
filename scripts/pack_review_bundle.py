@@ -10,11 +10,11 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_3a"
+HISTORY_SUBDIR = "v0.2_phase2_3a_hardening"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a_webapp_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a_hardening_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "aefce423a690e0d6140906177e0b2251bd0ed354"
+TASK_BASE_COMMIT = "1adc6a9b3a58f118d8f8cdbb65b5dbf97d6a6963"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
@@ -256,7 +256,7 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
     head_short = head_commit[:7]
     base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A Platform-Independent Meeting Room Web App v1
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A Hardening (Security & UX Hardening)
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
@@ -273,60 +273,57 @@ def generate_manifest(head_commit: str, branch: str) -> Path:
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A: Platform-independent Meeting Room Web App v1** prior to any GitHub push or Telegram Mini App coupling.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A Hardening** prior to any GitHub push or Telegram Mini App coupling.
 
 ### Scope & Constraints:
-- **Platform-Independent**: Standalone Web App accessible via standard mobile/desktop browsers using existing `WebSession`.
-- **Zero Telegram Dependencies in Web App**: No `Telegram.WebApp` or Telegram-specific branching inside Timeline UI or Core services. Shared Core architecture strictly preserved.
-- **No Mini App Coupling**: Telegram Mini App Adapter is deferred to Phase 2.3B.
-- **No Kakao Coupling**: Kakao Adapter is deferred to future phase.
-- **Read-Only Timeline v1**: 회의실 생성/수정/취소는 미구현 (추후 단계 제공).
+- **BLOCKER Fix**: Initial Timeline JSON XSS Prevention via Jinja2 autoescape & safe JSON serialization (`tojson`).
+- **User Display HTML Injection Prevention**: Jinja2 autoescaping applied across all template contexts.
+- **XSS Regression Test Suite**: Automated verification ensuring script breakouts and `<img>` injection cannot succeed.
+- **Clean UX**: Removed debug/legacy banner (`"Timeline UI는 다음 단계에서 제공됩니다 (v1)"`) and raw internal `UserKey`.
+- **Initial Error Handling**: Show error banner on failure without duplicate automatic fetch; retry on user button click.
+- **Configurable Grid Hours**: CSS Custom Property `--timeline-total-hours` dynamically bound to `TIMELINE_START_HOUR` and `TIMELINE_END_HOUR`.
+- **Accessibility**: Keyboard interaction (`Enter` / `Space`) supported on reservation blocks.
+- **Zero Telegram Dependencies in Web App**: No platform coupling in UI or core.
 - **Strict Prohibition**: `git push` was NOT executed.
 
 ---
 
 ## 3. Key Implementations
 
-### 1) Mobile-First Responsive Meeting Room Timeline Web App (`/timeline`)
-- **URL Preserved**: Replaced placeholder at `GET /timeline` with a functional, mobile-first Web App.
-- **Centralized Work Hours Axis**: 08:00 ~ 20:00 (configured in `AppConfig` via `TIMELINE_START_HOUR` & `TIMELINE_END_HOUR`).
-- **Asia/Seoul Current Time Indicator**: 실시간 세로 인디케이터 라인 및 시각 배지 표시 (오늘 날짜 범위 내).
-- **Sticky Room Column**: 360px ~ 430px 모바일 가로 스크롤 시에도 회의실 이름, 정원, 지금 사용 가능 상태가 고정되어 길을 잃지 않음.
-- **"지금 빈 회의실(🟢)" 배지**: 사용자가 즉시 사용할 수 있는 방을 시각적으로 강조.
-- **Reservation Detail Bottom Sheet / Modal**: 예약 블록 터치 시 회의실, 시간, 예약자, 회의명 상세 표시.
+### 1) BLOCKER — Initial Timeline JSON XSS Prevention
+- Transitioned `render_html()` from custom string replacement to Jinja2 `Environment(autoescape=select_autoescape(['html', 'xml']))`.
+- Serialized bootstrap data using `{{{{ initial_data | tojson }}}}`, which safely escapes `<`, `>`, `&`, `'` as `\\u003c`, `\\u003e`, `\\u0026`, `\\u0027`.
+- Verified that malicious payloads such as `</script><script>window.XSS=1</script>` cannot break out of the script tag, and decode cleanly into JavaScript objects upon `JSON.parse()`.
+- Korean characters preserved naturally with `ensure_ascii=False`.
 
-### 2) Dynamic Floor Selection & JSON API Endpoint (`GET /api/web/timeline`)
-- **Dynamic Asset Retrieval**: Asset/Floor 및 Room 정보가 HTML에 하드코딩되지 않고 `MeetingRoomService` / Provider를 통해 동적 로드.
-- **Fast Dynamic Switching**: 상단 층 드롭다운 선택 시 `GET /api/web/timeline?asset_id=...` 호출로 페이지 깜빡임 없이 비동기 갱신.
-- **Instant Initial Bootstrap**: 첫 페이지 로드 시 `<script id="initial-timeline-data" type="application/json">` 주입으로 추가 라운드트립 없이 즉시 렌더링.
+### 2) user_display HTML Injection Prevention
+- All template variables including `{{{{ user_display }}}}` are autoescaped by the Jinja2 engine, preventing injection payloads like `</strong><img src=x onerror=...><strong>` from being parsed as markup.
 
-### 3) Reservation DTO Extension & Presentation Policy
-- **Grounded API Mapping**:
-  - `reserver_name: Optional[str]` mapped from actual Groupware fields (`userName`, `empName`, `reserverName`, `registerName`, `writer`).
-  - `meeting_title: Optional[str]` mapped from actual Groupware fields (`title`, `subject`, `meetingTitle`, `scheduleTitle`).
-- **Presentation Toggle**: `SHOW_RESERVER_NAME`, `SHOW_MEETING_TITLE` settings in `AppConfig` allow masking without permanently deleting data from core.
-- **Backward Compatibility**: Preserved `assert not hasattr(res, "userName")` requirement for security test suite.
+### 3) Timeline Top Debug/Legacy Banner Cleanup
+- Completely removed `"Timeline UI는 다음 단계에서 제공됩니다 (v1)"` and internal UserKey display (`telegram:123...`).
+- Display minimal, clear status badge (`🟢 연결됨`) in the header right section.
 
-### 4) Favorites Integration
-- Reused existing `UserKey` based `FavoriteService` and `JsonFavoriteRepository`.
-- `[⭐ 즐겨찾기]` / `[전체]` instant segmented filter toggle.
-- Helpful guidance displayed when no favorites are registered.
+### 4) Initial Error Handling Fix
+- Initial server-side query failure renders error banner immediately via `<script id="initial-error-data">`.
+- `DOMContentLoaded` checks `initialError` and stops automatic re-querying to `/api/web/timeline`.
+- Re-querying occurs only when the user explicitly clicks `[다시 시도]`.
 
-### 5) Authentication & Security Hygiene
-- **Dual Session Validation**: Requires both valid `meetingroom_web_session` cookie and active Groupware session in `session_manager`.
-- **Friendly Boundary Screens**: 401 unauthenticated and session expired screens with clear guidance.
-- **Zero Credential Leakage**: `password`, `session cookie`, `GOSSOcookie`, `account link token`, `LinkSession ID`, `WebSession ID` are strictly excluded from HTML, JS, and API responses.
-- **Strict Headers Preserved**: `Cache-Control`, `Referrer-Policy`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, `CSP: frame-ancestors 'none'`.
+### 5) Dynamic Hour Grid Configuration
+- Replaced hardcoded `calc(100% / 12)` in CSS with `calc(100% / var(--timeline-total-hours, 12))`.
+- JavaScript sets `--timeline-total-hours` dynamically based on `end_hour - start_hour`.
+
+### 6) Keyboard Accessibility
+- Added keydown event listeners (`Enter`, `Space`) to reservation blocks (`role="button"`, `tabindex="0"`) to trigger the detail modal.
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Phase 2.2 Final)**: 239 passed.
-- **New Tests Added (Phase 2.3A)**: 22 passed in `tests/test_phase2_3a_web_app.py`.
-- **Full Pytest Suite**: 261 passed, 0 failed, 0 skipped.
-- **Execution Time**: ~3.6s.
+- **Baseline Tests (Phase 2.3A Base)**: 261 passed.
+- **New Tests Added (Phase 2.3A Hardening)**: 6 passed in `tests/test_phase2_3a_web_app.py`.
+- **Full Pytest Suite**: 267 passed, 0 failed, 0 skipped.
+- **Execution Time**: ~5.0s.
 - **Standalone Review Bundle Self-Test**: Extracted zip executed cleanly with 100% test pass.
-- **End-to-End Smoke Test**: `scripts/smoke_test_phase2_3a.py` 9/9 steps PASSED.
+- **End-to-End Smoke Test**: `scripts/smoke_test_phase2_3a.py` 10/10 steps PASSED (including XSS mock payload check).
 
 ---
 

@@ -72,18 +72,20 @@ def reset_rate_limits():
         _login_attempts_by_ip.clear()
 
 
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(TEMPLATES_DIR)),
+    autoescape=select_autoescape(["html", "xml"]),
+)
+_jinja_env.policies["json.dumps_kwargs"] = {"ensure_ascii": False}
+
+
 def render_html(template_name: str, context: dict = None) -> str:
-    """Render HTML template from templates directory using string substitution."""
+    """Render HTML template using Jinja2 with autoescaping."""
     context = context or {}
-    template_path = TEMPLATES_DIR / template_name
-    html = template_path.read_text(encoding="utf-8")
-    for key, val in context.items():
-        placeholder_spaced = "{{ " + key + " }}"
-        placeholder_tight = "{{" + key + "}}"
-        str_val = str(val) if val is not None else ""
-        html = html.replace(placeholder_spaced, str_val)
-        html = html.replace(placeholder_tight, str_val)
-    return html
+    template = _jinja_env.get_template(template_name)
+    return template.render(**context)
 
 
 def create_app() -> FastAPI:
@@ -310,6 +312,7 @@ def create_app() -> FastAPI:
 
         html = render_html("timeline.html", {
             "user_display": web_session.user_key.to_string(),
+            "initial_data": initial_data,
             "initial_data_json": json.dumps(initial_data, ensure_ascii=False),
             "error_message": error_message,
         })

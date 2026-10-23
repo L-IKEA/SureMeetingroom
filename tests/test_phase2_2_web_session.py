@@ -445,9 +445,7 @@ class TestProtectedTimelineEndpoint:
         resp = client.get("/timeline")
         assert resp.status_code == 200
         assert "회의실 시간표" in resp.text
-        assert "계정 연결이 완료되었습니다" in resp.text
-        assert "Timeline UI는 다음 단계에서 제공됩니다" in resp.text
-        assert "telegram:timeline_happy_user" in resp.text
+        assert "Timeline UI는 다음 단계에서 제공됩니다" not in resp.text
 
 
 class TestLogoutFlow:

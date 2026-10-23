@@ -96,10 +96,10 @@ def run_smoke_test():
     resp_timeline = client.get("/timeline")
     assert resp_timeline.status_code == 200, f"Expected 200, got {resp_timeline.status_code}"
     assert "회의실 시간표" in resp_timeline.text
-    assert "계정 연결이 완료되었습니다" in resp_timeline.text
-    assert "telegram:smoke_test_user" in resp_timeline.text
+    assert "Timeline UI는 다음 단계에서 제공됩니다" not in resp_timeline.text
     assert "<script id=\"initial-timeline-data\"" in resp_timeline.text
-    print(f"[5] GET /timeline rendered 200 OK (HTML + Initial Bootstrap JSON)")
+    assert "<script id=\"initial-error-data\"" in resp_timeline.text
+    print(f"[5] GET /timeline rendered 200 OK (HTML + Safe Initial Bootstrap JSON)")
 
     # Step 6: GET /api/web/timeline JSON endpoint
     resp_api = client.get("/api/web/timeline")
@@ -129,8 +129,58 @@ def run_smoke_test():
     assert not session_manager.has_session(user_key)
     print(f"[9] POST /logout terminated session cleanly")
 
+    # Step 10: XSS Security Smoke Check (Malicious reservation title & room name)
+    import json
+    from unittest.mock import patch
+    from meeting_room_bot.providers.base import QueryResult, QueryStatus
+
+    xss_user = UserKey("telegram", "smoke_xss_user")
+    xss_session = web_session_store.create_web_session(xss_user)
+    gw_xss = GroupwareClient()
+    gw_xss._is_authenticated = True
+    gw_xss._cookies = {"JSESSIONID": "mock"}
+    session_manager.set_client(xss_user, gw_xss)
+    client.cookies.set(WEB_SESSION_COOKIE_NAME, xss_session.session_id, path="/")
+
+    malicious_room = "회의실 </script><script>window.SMOKE_XSS=1</script>"
+    malicious_title = "</script><script>window.TITLE_XSS=1</script>"
+    mock_payload = {
+        "rooms": [{
+            "id": 999,
+            "name": malicious_room,
+            "reservations": [{
+                "id": 1,
+                "room_name": malicious_room,
+                "meeting_title": malicious_title,
+                "reserver_name": "<img src=x onerror=alert(1)>",
+                "start_time": "10:00",
+                "end_time": "11:00",
+                "left_percent": 16.67,
+                "width_percent": 8.33,
+            }],
+        }]
+    }
+    mock_xss_provider = MagicMock()
+    mock_xss_provider.get_timeline.return_value = QueryResult(status=QueryStatus.SUCCESS, data=mock_payload)
+
+    with patch("meeting_room_bot.account_link.app.get_provider", return_value=mock_xss_provider):
+        resp_xss = client.get("/timeline")
+        assert resp_xss.status_code == 200
+        # Executable tags MUST NOT be injected into HTML
+        assert "<script>window.SMOKE_XSS=1</script>" not in resp_xss.text
+        assert "<script>window.TITLE_XSS=1</script>" not in resp_xss.text
+        # Initial script element must not be prematurely broken
+        json_match = re.search(r'<script id="initial-timeline-data"[^>]*>(.*?)</script>', resp_xss.text, re.DOTALL)
+        assert json_match, "Initial timeline script not found"
+        raw_json = json_match.group(1).strip()
+        assert "</script>" not in raw_json, "Literal </script> found inside bootstrap script"
+        parsed = json.loads(raw_json)
+        assert parsed["rooms"][0]["name"] == malicious_room
+        assert parsed["rooms"][0]["reservations"][0]["meeting_title"] == malicious_title
+    print(f"[10] XSS injection smoke check passed (Malicious tags safely escaped in JSON bootstrap)")
+
     print("\n" + "=" * 60)
-    print("  ALL 9 SMOKE TEST STEPS PASSED SUCCESSFULLY! (PASS)")
+    print("  ALL 10 SMOKE TEST STEPS PASSED SUCCESSFULLY! (PASS)")
     print("=" * 60 + "\n")
 
 
