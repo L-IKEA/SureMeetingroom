@@ -5,7 +5,7 @@ from pathlib import Path
 import secrets
 import threading
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional, Union
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -346,7 +346,13 @@ def create_app() -> FastAPI:
             return resp
 
         asset_id_param = request.query_params.get("asset_id")
-        target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
+        target_asset_id: Optional[Union[int, str]] = None
+        if asset_id_param:
+            param_clean = asset_id_param.strip().lower()
+            if param_clean == "all":
+                target_asset_id = "all"
+            elif param_clean.isdigit():
+                target_asset_id = int(param_clean)
 
         provider = get_provider()
         result = await asyncio.to_thread(provider.get_timeline, user_id=web_session.user_key, asset_id=target_asset_id)
@@ -405,7 +411,13 @@ def create_app() -> FastAPI:
             return resp
 
         asset_id_param = request.query_params.get("asset_id")
-        target_asset_id = int(asset_id_param) if asset_id_param and asset_id_param.isdigit() else None
+        target_asset_id: Optional[Union[int, str]] = None
+        if asset_id_param:
+            param_clean = asset_id_param.strip().lower()
+            if param_clean == "all":
+                target_asset_id = "all"
+            elif param_clean.isdigit():
+                target_asset_id = int(param_clean)
 
         # Parse and validate start_time
         has_start_param = "start" in request.query_params or "start_time" in request.query_params
@@ -491,6 +503,86 @@ def create_app() -> FastAPI:
         else:
             return JSONResponse(
                 content={"error": "회의실 가용성 정보를 불러오지 못했습니다.", "code": "GROUPWARE_ERROR"},
+                status_code=500,
+            )
+
+    @app.get("/api/web/reservations")
+    async def get_web_reservations_api(request: Request):
+        """Web App JSON API for WHO mode reservations query."""
+        config = get_config()
+        web_session_id = request.cookies.get(config.web_session_cookie_name)
+        if not web_session_id:
+            return JSONResponse(
+                content={"error": "인증되지 않은 접근입니다. 계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+
+        web_session = web_session_store.get_web_session(web_session_id)
+        if not web_session:
+            return JSONResponse(
+                content={"error": "웹 세션이 만료되었습니다. 다시 계정을 연결해주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+
+        if not session_manager.has_session(web_session.user_key):
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+
+        asset_id_param = request.query_params.get("asset_id")
+        target_asset_id: Optional[Union[int, str]] = None
+        if asset_id_param:
+            param_clean = asset_id_param.strip().lower()
+            if param_clean == "all":
+                target_asset_id = "all"
+            elif param_clean.isdigit():
+                target_asset_id = int(param_clean)
+
+        query = request.query_params.get("query")
+        if query:
+            query = query.strip()
+            if len(query) > 100:
+                query = query[:100]
+
+        fav_param = request.query_params.get("favorite_only") or request.query_params.get("fav")
+        favorite_only = str(fav_param).strip().lower() in ("true", "1", "yes")
+
+        provider = get_provider()
+        result = await asyncio.to_thread(
+            provider.get_web_reservations,
+            user_id=web_session.user_key,
+            asset_id=target_asset_id,
+            query=query,
+            favorite_only=favorite_only,
+        )
+
+        if result.status == QueryStatus.SUCCESS:
+            return JSONResponse(content=result.data, status_code=200)
+        elif result.status == QueryStatus.SESSION_EXPIRED:
+            web_session_store.remove_web_session(web_session_id)
+            resp = JSONResponse(
+                content={"error": "계정 연결이 만료되었습니다. 다시 연결해 주세요.", "code": "SESSION_EXPIRED"},
+                status_code=401,
+            )
+            resp.delete_cookie(key=config.web_session_cookie_name, path="/")
+            return resp
+        elif result.status == QueryStatus.NOT_AUTHENTICATED:
+            return JSONResponse(
+                content={"error": "계정 연결이 필요합니다.", "code": "NOT_AUTHENTICATED"},
+                status_code=401,
+            )
+        elif result.status == QueryStatus.NETWORK_ERROR:
+            return JSONResponse(
+                content={"error": "예약 정보를 불러오지 못했습니다.", "code": "NETWORK_ERROR"},
+                status_code=502,
+            )
+        else:
+            return JSONResponse(
+                content={"error": "예약 정보를 불러오지 못했습니다.", "code": "GROUPWARE_ERROR"},
                 status_code=500,
             )
 

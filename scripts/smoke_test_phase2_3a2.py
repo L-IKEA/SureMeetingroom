@@ -161,11 +161,11 @@ def run_ux_smoke_test():
     # -------------------------------------------------------------
     print(f"\n[Scenario F: Empty States]")
     # Verify presence of empty state messages in JS/HTML
-    assert "현재 바로 사용할 수 있는 회의실이 없습니다." in html
+    assert "현재 사용 가능한 회의실이 없습니다." in html
     assert "선택한 시간에 사용 가능한 회의실이 없습니다." in html
     assert "즐겨찾기한 회의실이 없습니다." in html or "즐겨찾기된 회의실이 없습니다." in html
     assert "이 위치에 등록된 회의실이 없습니다." in html
-    print("  - NOW Empty State: '현재 바로 사용할 수 있는 회의실이 없습니다.' (Verified)")
+    print("  - NOW Empty State: '현재 사용 가능한 회의실이 없습니다.' (Verified)")
     print("  - WHEN Empty State: '선택한 시간에 사용 가능한 회의실이 없습니다.' (Verified)")
     print("  - Favorites Empty State: '즐겨찾기한 회의실이 없습니다.' (Verified)")
     print("  - Asset Empty State: '이 위치에 등록된 회의실이 없습니다.' (Verified)")

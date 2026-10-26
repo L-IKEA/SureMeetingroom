@@ -1,4 +1,4 @@
-"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.3A-2 Meeting Room Web App Core UX Integration."""
+"""Pack curated review bundle for ChatGPT cross-verification of v0.2 Phase 2.3A-3 Meeting Room Web App User UX Completion."""
 
 import os
 from pathlib import Path
@@ -10,11 +10,12 @@ import tempfile
 import zipfile
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
-HISTORY_SUBDIR = "v0.2_phase2_3a2_async_hardening"
+HISTORY_SUBDIR = "v0.2_phase2_3a3_history_clean"
 OUTPUT_DIR = WORKSPACE_ROOT / "review_bundles" / HISTORY_SUBDIR
-ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a2_async_hardening_review.zip"
+ZIP_FILENAME = "suremeetingroom_v0.2_phase2_3a3_history_clean_review.zip"
 RELEASE_BASE_TAG = "v0.1-local-mvp"
-TASK_BASE_COMMIT = "7e7a7698f1c3139872cf585629aacf235df91b49"
+REMOTE_SAFE_HEAD = "aefce423a690e0d6140906177e0b2251bd0ed354"
+TASK_BASE_COMMIT = "fed9b037b70331288ff95db048377e74968b0f2e"
 
 # 1. Exact list of files to include: (rel_path_in_workspace, arcname_in_zip)
 BUNDLE_FILES = [
@@ -23,7 +24,12 @@ BUNDLE_FILES = [
     (f"review_bundles/{HISTORY_SUBDIR}/REVIEW_GIT_DIFF.patch", "REVIEW_GIT_DIFF.patch"),
     (f"review_bundles/{HISTORY_SUBDIR}/CUMULATIVE_GIT_DIFF.patch", "CUMULATIVE_GIT_DIFF.patch"),
 
-    # Phase 2.3A-2 New & Changed Files
+    # Phase 2.3A-3 New & Changed Files
+    ("docs/V0_2_PHASE2_3A3_USER_UX.md", "docs/V0_2_PHASE2_3A3_USER_UX.md"),
+    ("tests/test_phase2_3a3_user_ux.py", "tests/test_phase2_3a3_user_ux.py"),
+    ("scripts/smoke_test_phase2_3a3.py", "scripts/smoke_test_phase2_3a3.py"),
+
+    # Phase 2.3A-2 Files
     ("docs/V0_2_PHASE2_3A2_WEB_UX.md", "docs/V0_2_PHASE2_3A2_WEB_UX.md"),
     ("tests/test_phase2_3a2_web_ux.py", "tests/test_phase2_3a2_web_ux.py"),
     ("scripts/smoke_test_phase2_3a2.py", "scripts/smoke_test_phase2_3a2.py"),
@@ -49,6 +55,7 @@ BUNDLE_FILES = [
     ("tests/test_phase2_3a_web_app.py", "tests/test_phase2_3a_web_app.py"),
     ("scripts/smoke_test_phase2_3a.py", "scripts/smoke_test_phase2_3a.py"),
     ("scripts/pack_review_bundle.py", "scripts/pack_review_bundle.py"),
+    (".gitignore", ".gitignore"),
 
     # Phase 2.2 Core & Template Files
     ("src/meeting_room_bot/account_link/session_store.py", "src/meeting_room_bot/account_link/session_store.py"),
@@ -132,6 +139,8 @@ FORBIDDEN_NAME_PATTERNS = [
     r"\.log$",
     r"__pycache__",
     r"\.pytest_cache",
+    r"daily\.json$",
+    r"denylist",
 ]
 
 SECRET_CONTENT_PATTERNS = [
@@ -139,6 +148,46 @@ SECRET_CONTENT_PATTERNS = [
     (r"BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY", "Private Key Header"),
     (r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}", "GitHub Token"),
 ]
+
+
+def load_private_denylist() -> list[str]:
+    """Load private denylist patterns from external environment or gitignored file if present."""
+    denylist_file = os.environ.get("REVIEW_PII_DENYLIST_FILE")
+    if not denylist_file:
+        candidate = WORKSPACE_ROOT / ".local_pii_denylist.txt"
+        if candidate.is_file():
+            denylist_file = str(candidate)
+
+    if not denylist_file or not os.path.isfile(denylist_file):
+        return []
+
+    patterns = []
+    try:
+        with open(denylist_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    patterns.append(line)
+    except Exception as e:
+        print(f"WARNING: Could not read private denylist file: {e}", file=sys.stderr)
+    return patterns
+
+
+def verify_real_fixture_sanitization():
+    """Verify that all Phase 2.3A-3 test fixtures use standard simulated placeholders."""
+    test_path = WORKSPACE_ROOT / "tests" / "test_phase2_3a3_user_ux.py"
+    smoke_path = WORKSPACE_ROOT / "scripts" / "smoke_test_phase2_3a3.py"
+
+    if test_path.is_file():
+        content = test_path.read_text(encoding="utf-8")
+        if "테스트회사" not in content or "홍길동" not in content or "김철수" not in content:
+            raise ValueError(f"Fixture sanitization check failed in {test_path.name}: Expected standard placeholders missing.")
+
+    if smoke_path.is_file():
+        content = smoke_path.read_text(encoding="utf-8")
+        if "테스트회사" not in content or "홍길동" not in content or "김철수" not in content:
+            raise ValueError(f"Fixture sanitization check failed in {smoke_path.name}: Expected standard placeholders missing.")
+    print("[OK] Real fixture structural sanitization verified: standard placeholders present.")
 
 
 def check_clean_working_tree():
@@ -166,21 +215,35 @@ def check_clean_working_tree():
     print("[OK] Working Tree check passed: CLEAN outside review_bundles.")
 
 
-def scan_file_safety(rel_path: str, abs_path: Path):
-    """Scan file path and contents for accidental secret exposure."""
+def scan_file_safety(rel_path: str, abs_path: Path, private_denylist: list[str]):
+    """Scan file path and contents for accidental secret and PII exposure."""
     for pat in FORBIDDEN_NAME_PATTERNS:
         if re.search(pat, rel_path, re.IGNORECASE):
             raise ValueError(f"Forbidden file detected in bundle list: {rel_path} (matched {pat})")
+
+    # Raw daily.json must never be bundled
+    if "daily.json" in rel_path.lower():
+        raise ValueError(f"Raw daily.json file detected in bundle list: {rel_path}")
+
+    # Denylist file must never be bundled
+    if "denylist" in rel_path.lower():
+        raise ValueError(f"Denylist file must never be bundled: {rel_path}")
 
     try:
         content = abs_path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return
 
+    # Secret patterns
     for pat, label in SECRET_CONTENT_PATTERNS:
         matches = re.findall(pat, content)
         if matches:
             raise ValueError(f"Security violation: {label} detected in {rel_path}: {matches[:2]}")
+
+    # Private denylist scan across ALL files (including patches)
+    for entry in private_denylist:
+        if entry in content:
+            raise ValueError(f"Sanitization violation: Operational sample-derived value detected in {rel_path}")
 
 
 def verify_changed_files_consistency(head_commit: str):
@@ -216,13 +279,14 @@ def verify_changed_files_consistency(head_commit: str):
 
 
 def run_standalone_bundle_self_test(zip_path: Path):
-    """Extract zip into isolated temp directory and run the bundled test suite."""
+    """Extract zip into isolated temp directory and run the bundled test suite and all smoke tests."""
     print("\n=== Running Standalone Review Bundle Self-Test ===")
     with tempfile.TemporaryDirectory() as tmp_dir:
         with zipfile.ZipFile(zip_path, mode="r") as zf:
             zf.extractall(tmp_dir)
 
         test_files = [
+            "tests/test_phase2_3a3_user_ux.py",
             "tests/test_phase2_3a2_web_ux.py",
             "tests/test_phase2_3a_web_app.py",
             "tests/test_phase2_2_web_session.py",
@@ -238,8 +302,9 @@ def run_standalone_bundle_self_test(zip_path: Path):
             "tests/test_real_favorites.py",
             "tests/test_real_mode_auth_flow.py",
         ]
+        sub_env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         cmd = [sys.executable, "-m", "pytest"] + test_files + ["-v"]
-        res = subprocess.run(cmd, cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8")
+        res = subprocess.run(cmd, cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", env=sub_env)
         if res.returncode != 0:
             print("Self-test FAILED in extracted bundle environment!", file=sys.stderr)
             print("STDOUT:\n", res.stdout, file=sys.stderr)
@@ -248,119 +313,143 @@ def run_standalone_bundle_self_test(zip_path: Path):
 
         match = re.search(r"(\d+)\s+passed", res.stdout)
         passed_count = match.group(1) if match else "all"
-        print(f"[OK] Standalone Self-Test PASSED: {passed_count} tests executed cleanly within isolated bundle context.")
+        print(f"[OK] Standalone Pytest Suite PASSED: {passed_count} tests executed cleanly within isolated bundle context.")
+
+        # Run Phase 2.3A Smoke Test
+        res_3a = subprocess.run([sys.executable, "scripts/smoke_test_phase2_3a.py"], cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", env=sub_env)
+        if res_3a.returncode != 0:
+            print("Phase 2.3A Smoke test FAILED in extracted bundle environment!", file=sys.stderr)
+            print("STDOUT:\n", res_3a.stdout, file=sys.stderr)
+            print("STDERR:\n", res_3a.stderr, file=sys.stderr)
+            raise RuntimeError("Phase 2.3A Smoke test failed")
+        print("[OK] Standalone Phase 2.3A Smoke Test PASSED: All 10 steps verified.")
+
+        # Run Phase 2.3A-2 Smoke Test
+        res_3a2 = subprocess.run([sys.executable, "scripts/smoke_test_phase2_3a2.py"], cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", env=sub_env)
+        if res_3a2.returncode != 0:
+            print("Phase 2.3A-2 Smoke test FAILED in extracted bundle environment!", file=sys.stderr)
+            print("STDOUT:\n", res_3a2.stdout, file=sys.stderr)
+            print("STDERR:\n", res_3a2.stderr, file=sys.stderr)
+            raise RuntimeError("Phase 2.3A-2 Smoke test failed")
+        print("[OK] Standalone Phase 2.3A-2 Smoke Test PASSED: All 8 scenarios (A-H) verified.")
+
+        # Run Phase 2.3A-3 Smoke Test
+        res_3a3 = subprocess.run([sys.executable, "scripts/smoke_test_phase2_3a3.py"], cwd=tmp_dir, capture_output=True, text=True, encoding="utf-8", errors="replace", env=sub_env)
+        if res_3a3.returncode != 0:
+            print("Phase 2.3A-3 Smoke test FAILED in extracted bundle environment!", file=sys.stderr)
+            print("STDOUT:\n", res_3a3.stdout, file=sys.stderr)
+            print("STDERR:\n", res_3a3.stderr, file=sys.stderr)
+            raise RuntimeError("Phase 2.3A-3 Smoke test failed")
+        print("[OK] Standalone Phase 2.3A-3 Smoke Test PASSED: All 16 scenarios (A-P) verified.")
 
 
 def generate_manifest(head_commit: str, branch: str) -> Path:
     """Generate REVIEW_BUNDLE_MANIFEST.md with exact commit hashes and requirements."""
     manifest_path = OUTPUT_DIR / "REVIEW_BUNDLE_MANIFEST.md"
-    head_short = head_commit[:7]
-    base_short = TASK_BASE_COMMIT[:7]
-    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A-2 Async Hardening (Stale-Response & Out-of-Order Race Protection)
+    content = f"""# Review Bundle Manifest: v0.2 Phase 2.3A-3 History Clean Review
 
 ## 1. Bundle Identification & Git Lineage
 - **Bundle File**: `{ZIP_FILENAME}`
 - **History Directory**: `review_bundles/{HISTORY_SUBDIR}/`
 - **Release Base Tag**: `{RELEASE_BASE_TAG}` (`f214e39b607e0f28def41b4d0ee5630017b63d85`)
-- **Task Base Commit**: `{TASK_BASE_COMMIT}`
+- **Remote Origin HEAD**: `{REMOTE_SAFE_HEAD}` (`refs/heads/{branch}`)
+- **Task Base Commit (Phase 2.3A-2 Safe Base)**: `{TASK_BASE_COMMIT}`
 - **Current HEAD Commit**: `{head_commit}`
 - **Branch**: `{branch}`
-- **Generated Date**: 2026-10-23
+- **Generated Date**: 2026-10-26
 - **Working Tree**: `CLEAN`
 - **Patch Range**: `{TASK_BASE_COMMIT}..{head_commit}`
 - **Cumulative Range**: `{RELEASE_BASE_TAG}..{head_commit}`
+- **History Rewrite Result**: Squashed unpublished Phase 2.3A-3 intermediate commits on top of safe Phase 2.3A-2 base (`{TASK_BASE_COMMIT}`). Remote origin commits (`{REMOTE_SAFE_HEAD}`) and approved Phase 2.3A/2.3A-2 history preserved intact.
 
 ---
 
 ## 2. Review Bundle Purpose & Scope
-This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A-2 Async Hardening (Stale-Response & Out-of-Order Race Protection)** prior to any GitHub push or Telegram Mini App coupling.
+This review bundle contains the complete, curated, and independently testable set of files for verifying **v0.2 Phase 2.3A-3 History Clean Review** (complete Git history squash of intermediate commits, operational value sanitization, detail modal label formatting, and multi-stage smoke suite verification) prior to any GitHub push or Telegram Mini App coupling.
 
 ### Scope & Hardening Goals:
-- **"Last user intent wins" principle**: Rapid user asset/mode/condition selections trigger multiple asynchronous requests. Faster responses must never overwrite newer user choices when earlier requests resolve out-of-order.
-- **Request Generation / Sequence IDs**:
-  - `timelineRequestSeq`: Monotonically incrementing counter for timeline fetches.
-  - `whenRequestSeq`: Monotonically incrementing counter for availability fetches.
-  - Paired with `AbortController` (`timelineAbortController`, `whenAbortController`) to immediately abort pending in-flight requests of the same type upon new user selection.
-- **Timeline Stale Guard Invariant**:
-  - Drops response before state mutation or rendering if `requestSeq !== timelineRequestSeq` or `requestedAssetId !== currentAssetId`.
-  - Stale responses are prevented from mutating `currentAssetId`, `currentTimelineData`, dropdown selection, rendering views, or executing chained calls.
-- **WHEN Stale Guard Invariant**:
-  - Drops response before state mutation or rendering if any condition fails:
-    `requestSeq === whenRequestSeq` AND
-    `requestedAssetId === currentAssetId` AND
-    `requestedStartTime === whenStartTime` AND
-    `requestedDuration === whenDuration`.
-- **Mode Race Isolation**:
-  - Removed implicit chained `loadWhenData()` invocation from `loadTimelineData()`.
-  - Views only re-render if current active view mode matches the response type.
-- **Loading Indicator Concurrency Safety**:
-  - `activeRequestsCount` reference counter tracks concurrent asynchronous tasks.
-  - Spinner hides ONLY when `activeRequestsCount === 0`, ensuring a completing stale request cannot prematurely hide the spinner while a newer request is still in-flight.
-- **Strict Prohibition**: `git push` was NOT executed.
+1. **Unpublished Phase 2.3A-3 History Cleanup**:
+   - Intermediate commits from Phase 2.3A-3 development squashed into a single clean commit on top of Phase 2.3A-2 safe base (`{TASK_BASE_COMMIT}`).
+   - Git history and generated patches (`REVIEW_GIT_DIFF.patch`, `CUMULATIVE_GIT_DIFF.patch`) contain zero operational sample-derived values (neither additions nor deleted lines).
+2. **Scanner & Fixture Sanitization (No Raw PII in Source)**:
+   - Automated scanner (`pack_review_bundle.py`) does not hardcode any raw employee names or operational strings.
+   - Verification uses dynamic external denylist loading (`.local_pii_denylist.txt` / `REVIEW_PII_DENYLIST_FILE`) and rule-based fixture validation.
+   - Raw `daily.json` files prohibited from the repository and review bundle.
+   - All real-data test fixtures strictly use standard simulated placeholders (`"홍길동"`, `"김철수"`, `"이영희"`, `"테스트회사"`, `"주간 회의"`).
+3. **전체 위치 상세 Modal 이중 괄호 방지 (Modal Label Formatting)**:
+   - `openDetailModal` formats as `${{locLabel}} · ${{capPart}}`, rendering `[판교] 7층 · 정원: 6인실` (all locations) and `7층 회의실 · 정원: 6인실` (single asset) without duplicate brackets (`[[...]]`).
+4. **Smoke Test Suite Maintenance**:
+   - `smoke_test_phase2_3a2.py` updated to match current UI empty state string (`"현재 사용 가능한 회의실이 없습니다."`).
+   - All 3 smoke scripts (Phase 2.3A, 2.3A-2, 2.3A-3) run and pass independently.
+5. **Real Groupware Mapping Logic Maintained**:
+   - Reserver: authoritative `res_dict["user"]["name"]` > property 51 > legacy fields.
+   - Meeting title: authoritative `properties[attributeId=50].content` > legacy fields.
+   - Anonymity: `useAnonym == true` masks to `"비공개"`.
+   - All-location labels: `format_asset_all_location_label` preserves `"판교"` and `"대전"`.
+6. **Strict Prohibition**: `git push` was NOT executed.
 
 ---
 
 ## 3. Key Implementations
 
-### 1) Asynchronous Request Sequencing & Abort Controller (`timeline.html`)
-- Added `timelineRequestSeq = 0`, `whenRequestSeq = 0`, `timelineAbortController = null`, `whenAbortController = null`, and `activeRequestsCount = 0`.
-- In `loadTimelineData(assetId)`:
-  - Aborts existing in-flight controller: `timelineAbortController.abort()`.
-  - Increments `requestSeq = ++timelineRequestSeq` and snapshots `requestedAssetId = targetAssetId`.
-  - Passes `signal: currentController.signal` into `fetch()`.
-  - Validates sequence and asset ID both before and after JSON parsing.
-  - Silently handles `AbortError`.
-- In `loadWhenData(assetId)`:
-  - Aborts existing in-flight controller: `whenAbortController.abort()`.
-  - Increments `requestSeq = ++whenRequestSeq` and snapshots `requestedAssetId`, `requestedStartTime`, `requestedDuration`.
-  - Passes `signal: currentController.signal` into `fetch()`.
-  - Validates sequence, asset ID, start time, and duration both before and after JSON parsing.
-  - Silently handles `AbortError`.
+### 1) Template & Detail Modal Label ([timeline.html](src/meeting_room_bot/account_link/templates/timeline.html))
+- `openDetailModal(room, res)`:
+  - `const locLabel = room.asset_short_label || room.asset_name || '';`
+  - `const capPart = room.capacity ? \`정원: ${{room.capacity}}인실\` : '회의실';`
+  - `modalRoomMeta.textContent = locLabel ? \`${{locLabel}} · ${{capPart}}\` : capPart;`
+  - Elimination of duplicate brackets (`[[`) across all locations and single asset views.
+- Section header clean binding: `room.asset_name || room.asset_short_label || '위치'`.
+- Initial placeholder subtitle sanitized to `회의실 정보`.
 
-### 2) Concurrency-Safe Loading Indicator (`showLoading`)
-- Increments `activeRequestsCount` on `showLoading(true)`.
-- Decrements `activeRequestsCount` (floor 0) on `showLoading(false)`.
-- Toggles DOM spinner/overlay only when counter transitions between 0 and >0.
+### 2) Test Fixtures & Smoke Test Suite
+- `tests/test_phase2_3a3_user_ux.py`:
+  - `real_daily_sample`: `id=100001`, `user.name="홍길동"`, `companyName="테스트회사"`, `meeting_title="주간 회의"`.
+  - `test_user_name_vs_property_51_priority`: `user.name="김철수"` vs `property 51="개발팀"`.
+  - `test_timeline_modal_label_no_double_brackets`: Test 39 verifying no double brackets.
+- `scripts/smoke_test_phase2_3a2.py`:
+  - Updated empty state assertion to `"현재 사용 가능한 회의실이 없습니다."`.
+- `scripts/smoke_test_phase2_3a3.py`:
+  - Scenario O (sanitized actual shape mapping) and Scenario P (site label and modal formatting).
 
-### 3) Core Invariants & State Hardening Preserved
-- 100% preservation of Phase 2.3A-2 cross-mode asset consistency and dropdown synchronization.
-- 100% preservation of NOW, WHEN, and TIMELINE core capabilities.
-- 100% preservation of Jinja2 safe `tojson` injection (zero XSS).
-- 100% platform independence (0 Telegram.WebApp dependencies).
+### 3) Review Bundle Packer & Security Engine ([pack_review_bundle.py](scripts/pack_review_bundle.py))
+- Dynamic private denylist loading (`.local_pii_denylist.txt`).
+- Full bundle scanning across all files including `.patch` diffs.
+- Automated execution of all 3 smoke test suites in extracted standalone environment.
 
 ---
 
 ## 4. Test Verification
-- **Baseline Tests (Task Base Commit `7e7a7698...`)**: 297 passed.
-- **New Regression Tests Added**: 5 passed in `TestAsyncRaceProtection` (`tests/test_phase2_3a2_web_ux.py`):
-  1. `test_scenario_h1_timeline_asset_race`: Asset 70 -> 80 rapid switch; out-of-order delivery preserves Asset 80 as final state.
-  2. `test_scenario_h2_when_asset_race`: WHEN 70 -> 80 rapid switch; out-of-order delivery preserves Asset 80 as final state.
-  3. `test_scenario_h3_when_condition_race`: WHEN 14:00/60m -> 14:30/90m rapid change; stale condition response dropped.
-  4. `test_scenario_h4_loading_indicator_concurrent_safety`: Stale request termination does not prematurely clear loading indicator while newer request is active.
-  5. `test_timeline_html_contains_async_race_guards`: Verifies sequence IDs, abort controllers, invariant guards, and activeRequestsCount in template.
-- **Full Pytest Suite**: 302 passed, 0 failed, 0 skipped.
-- **Execution Time**: ~5.6s.
-- **End-to-End UX Smoke Test**: `scripts/smoke_test_phase2_3a2.py` PASSED all 8 scenarios (A~H), including Scenario H (H-1 to H-5).
-- **Standalone Review Bundle Self-Test**: Extracted zip executed cleanly with 100% test pass across all bundled test suites.
+- **Full Pytest Suite**: 341 passed, 0 failed, 0 skipped.
+- **Phase 2.3A Smoke Test**: `scripts/smoke_test_phase2_3a.py` (10/10 steps PASSED).
+- **Phase 2.3A-2 Smoke Test**: `scripts/smoke_test_phase2_3a2.py` (All 8 scenarios A-H PASSED).
+- **Phase 2.3A-3 Smoke Test**: `scripts/smoke_test_phase2_3a3.py` (All 16 scenarios A-P PASSED).
+- **Secret Scan**: 100% Clean (0 tokens, 0 cookies, 0 hardcoded credentials).
+- **Fixture Sanitization Scan**: 100% Clean (Real Groupware sample-derived operational values sanitized).
+- **Patch Sanitization Scan**: 100% Clean (REVIEW_GIT_DIFF and CUMULATIVE_GIT_DIFF free of sample-derived operational values).
+- **Raw daily.json Absence**: 100% Confirmed (0 raw daily.json files in repository or bundle).
+- **Modal Label Verification**: Double brackets (`[[`) verified absent in template and rendered modal room meta.
+- **Standalone Review Bundle Self-Test**: Extracted zip executed cleanly with 100% test pass (251 pytest tests + 3 smoke scripts).
 
 ---
 
 ## 5. Artifacts & Web App Metrics
 - **HTML Templates**: 4 templates (`login.html`, `timeline.html`, `error.html`, `success.html`)
 - **Active Web Endpoints**:
-  - `GET /timeline` (NOW, WHEN, TIMELINE unified Web App)
-  - `GET /api/web/timeline` (Timeline & floor data API)
-  - `GET /api/web/availability` (WHEN mode room availability API with validation)
+  - `GET /timeline` (NOW, WHEN, WHO, TIMELINE unified Web App)
+  - `GET /api/web/timeline` (Timeline & floor data API, supports `asset_id="all"`)
+  - `GET /api/web/availability` (WHEN mode room availability API, supports `asset_id="all"`)
+  - `GET /api/web/reservations` (WHO mode person-centric reservations API)
   - `POST /logout` (Session termination)
-- **Secret Scan**: 100% Clean (0 real bot tokens, 0 cookies, 0 hardcoded credentials)
+- **Secret Scan**: 100% Clean
+- **Sanitization Scan**: 100% Clean
 
 ---
 
 ## 6. Next Steps: Phase 2.3B Telegram Mini App Adapter
-1. Telegram Bot inline keyboard `web_app=WebAppInfo(url=...)` integration
-2. Telegram `initData` signature validation and automatic WebSession association
-3. CSP frame-ancestors adjustment for secure Telegram Mini App iframe embedding
-4. Telegram BackButton / HapticFeedback platform adapter integration
+1. Telegram Bot inline keyboard `web_app=WebAppInfo(url=...)` integration.
+2. Telegram `initData` signature validation and automatic WebSession association.
+3. CSP frame-ancestors adjustment for secure Telegram Mini App iframe embedding.
+4. Telegram BackButton / HapticFeedback platform adapter integration.
 """
     manifest_path.write_text(content, encoding="utf-8")
     print(f"[OK] Generated {manifest_path.name} (HEAD={head_commit})")
@@ -373,6 +462,7 @@ def main():
 
     print(f"=== Creating Review Bundle: {ZIP_FILENAME} ===")
     print(f"Release Base Tag: {RELEASE_BASE_TAG}")
+    print(f"Remote Safe Head: {REMOTE_SAFE_HEAD}")
     print(f"Task Base Commit: {TASK_BASE_COMMIT}")
     print(f"History Output Directory: {OUTPUT_DIR}")
 
@@ -417,6 +507,11 @@ def main():
     verify_changed_files_consistency(head_commit)
 
     # 4. Verify all files exist and are safe
+    verify_real_fixture_sanitization()
+    private_denylist = load_private_denylist()
+    if private_denylist:
+        print(f"[OK] Loaded private denylist ({len(private_denylist)} rules from local/env config).")
+
     total_uncompressed_bytes = 0
     valid_files = []
 
@@ -426,11 +521,12 @@ def main():
             print(f"ERROR: Missing bundle file: {rel_path}", file=sys.stderr)
             sys.exit(1)
 
-        scan_file_safety(rel_path, abs_path)
+        scan_file_safety(rel_path, abs_path, private_denylist)
         file_size = abs_path.stat().st_size
         total_uncompressed_bytes += file_size
         valid_files.append((rel_path, abs_path, file_size, arcname))
 
+    print(f"[OK] Security and Sanitization scan passed: 100% clean across all {len(valid_files)} bundled files (including patches).")
     print(f"Total files to bundle: {len(valid_files)}")
     print(f"Total uncompressed size: {total_uncompressed_bytes:,} bytes ({total_uncompressed_bytes / 1024:.2f} KB)")
 

@@ -88,20 +88,32 @@ class MeetingRoomQueryProvider(ABC):
     def get_timeline(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         target_date: Optional[datetime] = None,
     ) -> QueryResult:
-        """Query timeline grid data for an asset location."""
+        """Query timeline grid data for an asset location or all locations."""
         pass
 
     @abstractmethod
     def get_web_availability(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         start_time: str = "14:00",
         duration: int = 60,
         target_date: Optional[datetime] = None,
     ) -> QueryResult:
         """Query room availability for WHEN mode in Web App."""
+        pass
+
+    @abstractmethod
+    def get_web_reservations(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[Union[int, str]] = None,
+        query: Optional[str] = None,
+        favorite_only: bool = False,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        """Query today's reservations for WHO mode in Web App."""
         pass

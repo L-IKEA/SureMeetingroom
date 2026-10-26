@@ -78,7 +78,7 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
     def get_timeline(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         target_date: Optional[datetime] = None,
     ) -> QueryResult:
         uid = self._resolve_uid(user_id)
@@ -92,7 +92,7 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
     def get_web_availability(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         start_time: str = "14:00",
         duration: int = 60,
         target_date: Optional[datetime] = None,
@@ -102,6 +102,24 @@ class MockMeetingRoomProvider(MeetingRoomQueryProvider):
             asset_id=asset_id,
             start_time=start_time,
             duration=duration,
+            user_key=uid,
+            target_date=target_date,
+        )
+        return QueryResult(status=QueryStatus.SUCCESS, data=res)
+
+    def get_web_reservations(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[Union[int, str]] = None,
+        query: Optional[str] = None,
+        favorite_only: bool = False,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        uid = self._resolve_uid(user_id)
+        res = MockMeetingRoomData.get_mock_web_reservations(
+            asset_id=asset_id,
+            query=query,
+            favorite_only=favorite_only,
             user_key=uid,
             target_date=target_date,
         )

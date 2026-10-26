@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from meeting_room_bot.config import get_config
 from meeting_room_bot.groupware.client import GroupwareClient
 from meeting_room_bot.models import Asset, Reservation, Room, UserKey
+from meeting_room_bot.models.asset import format_asset_all_location_label, format_asset_compact_label
 from meeting_room_bot.services.availability_service import AvailabilityService
 from meeting_room_bot.services.room_status_service import RoomStatus, RoomStatusService
 
@@ -505,31 +506,42 @@ class MeetingRoomService:
                 "available_rooms_count": 0,
             }
 
-        # Resolve selected asset
-        selected_asset = None
-        if asset_id is not None:
-            selected_asset = next((a for a in all_assets if a.id == asset_id), None)
-        if selected_asset is None:
-            selected_asset = all_assets[0]
+        is_all_locations = (str(asset_id).strip().lower() == "all") if asset_id is not None else False
+
+        if is_all_locations:
+            target_assets = all_assets
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            selected_asset = None
+            if asset_id is not None:
+                try:
+                    aid = int(asset_id)
+                    selected_asset = next((a for a in all_assets if a.id == aid), None)
+                except (ValueError, TypeError):
+                    selected_asset = None
+            if selected_asset is None:
+                selected_asset = all_assets[0]
+            target_assets = [selected_asset]
+            selected_asset_dict = {
+                "id": selected_asset.id,
+                "name": selected_asset.name,
+                "short_label": format_asset_compact_label(selected_asset.name),
+            }
 
         # Asset metadata for dropdown
         assets_data = [
             {
                 "id": a.id,
                 "name": a.name,
-                "short_label": a.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
-                "selected": (a.id == selected_asset.id),
+                "short_label": format_asset_compact_label(a.name),
+                "selected": (not is_all_locations and a.id == selected_asset_dict["id"]),
             }
             for a in all_assets
         ]
-
-        # Fetch rooms and reservations for selected asset
-        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
-        item_res = self.client.get_items(selected_asset.id)
-        daily_res = self.client.get_daily_reservations(selected_asset.id, date_str=date_str)
-
-        rooms = _parse_rooms(item_res, selected_asset.id)
-        res_map = _parse_reservations_by_room(daily_res)
 
         # Check user favorites
         user_fav_rooms = set()
@@ -542,74 +554,89 @@ class MeetingRoomService:
             except Exception as e:
                 logger.warning(f"Failed to load favorites for timeline: {e}")
 
-        is_asset_fav = (selected_asset.id in user_fav_assets)
-
+        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
         rooms_data: List[Dict[str, Any]] = []
-        for room in rooms:
-            is_fav = is_asset_fav or (room.id in user_fav_rooms)
-            room_reservations = res_map.get(room.id, [])
 
-            status_info = RoomStatusService.calculate_status(room, room_reservations, now=now)
-            is_available_now = status_info.is_available
-            if is_available_now:
-                status_text = "지금 빈 회의실"
-                if status_info.next_reservation_start:
-                    status_text = f"지금 비어있음 ({status_info.next_reservation_start.strftime('%H:%M')} 예약)"
-            else:
-                end_str = status_info.current_reservation_end.strftime("%H:%M") if status_info.current_reservation_end else ""
-                status_text = f"사용 중 ({end_str}까지)" if end_str else "사용 중"
+        for asset in target_assets:
+            item_res = self.client.get_items(asset.id)
+            daily_res = self.client.get_daily_reservations(asset.id, date_str=date_str)
 
-            # Filter & project reservations into timeline slots
-            res_blocks: List[Dict[str, Any]] = []
-            for r in room_reservations:
-                if r.end_time <= timeline_start or r.start_time >= timeline_end:
-                    continue
-                clamped_start = max(r.start_time, timeline_start)
-                clamped_end = min(r.end_time, timeline_end)
-                start_offset = (clamped_start - timeline_start).total_seconds() / 60.0
-                duration = (clamped_end - clamped_start).total_seconds() / 60.0
+            rooms = _parse_rooms(item_res, asset.id)
+            res_map = _parse_reservations_by_room(daily_res)
+            is_asset_fav = (asset.id in user_fav_assets)
+            short_label = format_asset_all_location_label(asset.name) if is_all_locations else format_asset_compact_label(asset.name)
 
-                left_pct = (start_offset / total_minutes) * 100.0
-                width_pct = (duration / total_minutes) * 100.0
-                if width_pct < 1.0:
-                    width_pct = 1.0
+            for room in rooms:
+                is_fav = is_asset_fav or (room.id in user_fav_rooms)
+                room_reservations = res_map.get(room.id, [])
 
-                reserver_name = r.reserver_name if config.show_reserver_name else None
-                meeting_title = r.meeting_title if config.show_meeting_title else None
+                status_info = RoomStatusService.calculate_status(room, room_reservations, now=now)
+                is_available_now = status_info.is_available
+                if is_available_now:
+                    status_text = "지금 빈 회의실"
+                    if status_info.next_reservation_start:
+                        status_text = f"지금 비어있음 ({status_info.next_reservation_start.strftime('%H:%M')} 예약)"
+                else:
+                    end_str = status_info.current_reservation_end.strftime("%H:%M") if status_info.current_reservation_end else ""
+                    status_text = f"사용 중 ({end_str}까지)" if end_str else "사용 중"
 
-                res_blocks.append({
-                    "id": r.id,
-                    "room_id": room.id,
-                    "room_name": room.name,
-                    "start_time": r.start_time.strftime("%H:%M"),
-                    "end_time": r.end_time.strftime("%H:%M"),
-                    "start_iso": r.start_time.isoformat(),
-                    "end_iso": r.end_time.isoformat(),
-                    "reserver_name": reserver_name,
-                    "meeting_title": meeting_title,
-                    "left_percent": round(left_pct, 2),
-                    "width_percent": round(width_pct, 2),
+                # Filter & project reservations into timeline slots
+                res_blocks: List[Dict[str, Any]] = []
+                for r in room_reservations:
+                    if r.end_time <= timeline_start or r.start_time >= timeline_end:
+                        continue
+                    clamped_start = max(r.start_time, timeline_start)
+                    clamped_end = min(r.end_time, timeline_end)
+                    start_offset = (clamped_start - timeline_start).total_seconds() / 60.0
+                    duration = (clamped_end - clamped_start).total_seconds() / 60.0
+
+                    left_pct = (start_offset / total_minutes) * 100.0
+                    width_pct = (duration / total_minutes) * 100.0
+                    if width_pct < 1.0:
+                        width_pct = 1.0
+
+                    reserver_name = r.reserver_name if config.show_reserver_name else None
+                    meeting_title = r.meeting_title if config.show_meeting_title else None
+
+                    res_blocks.append({
+                        "id": r.id,
+                        "room_id": room.id,
+                        "room_name": room.name,
+                        "asset_id": asset.id,
+                        "asset_name": asset.name,
+                        "asset_short_label": short_label,
+                        "start_time": r.start_time.strftime("%H:%M"),
+                        "end_time": r.end_time.strftime("%H:%M"),
+                        "start_iso": r.start_time.isoformat(),
+                        "end_iso": r.end_time.isoformat(),
+                        "reserver_name": reserver_name,
+                        "meeting_title": meeting_title,
+                        "left_percent": round(left_pct, 2),
+                        "width_percent": round(width_pct, 2),
+                    })
+
+                res_blocks.sort(key=lambda b: b["start_time"])
+
+                next_start_str = status_info.next_reservation_start.strftime("%H:%M") if status_info.next_reservation_start else None
+                available_mins = None
+                if is_available_now and status_info.next_reservation_start:
+                    available_mins = max(0, int((status_info.next_reservation_start - now).total_seconds() // 60))
+
+                rooms_data.append({
+                    "id": room.id,
+                    "name": room.name,
+                    "capacity": room.capacity,
+                    "favorite": is_fav,
+                    "is_available_now": is_available_now,
+                    "status_text": status_text,
+                    "next_reservation_start": next_start_str,
+                    "available_until": next_start_str,
+                    "available_minutes": available_mins,
+                    "reservations": res_blocks,
+                    "asset_id": asset.id,
+                    "asset_name": asset.name,
+                    "asset_short_label": short_label,
                 })
-
-            res_blocks.sort(key=lambda b: b["start_time"])
-
-            next_start_str = status_info.next_reservation_start.strftime("%H:%M") if status_info.next_reservation_start else None
-            available_mins = None
-            if is_available_now and status_info.next_reservation_start:
-                available_mins = max(0, int((status_info.next_reservation_start - now).total_seconds() // 60))
-
-            rooms_data.append({
-                "id": room.id,
-                "name": room.name,
-                "capacity": room.capacity,
-                "favorite": is_fav,
-                "is_available_now": is_available_now,
-                "status_text": status_text,
-                "next_reservation_start": next_start_str,
-                "available_until": next_start_str,
-                "available_minutes": available_mins,
-                "reservations": res_blocks,
-            })
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
@@ -620,11 +647,7 @@ class MeetingRoomService:
             "hours": list(range(start_hour, end_hour + 1)),
             "current_time_percent": round(current_time_percent, 2) if current_time_percent is not None else None,
             "assets": assets_data,
-            "selected_asset": {
-                "id": selected_asset.id,
-                "name": selected_asset.name,
-                "short_label": selected_asset.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
-            },
+            "selected_asset": selected_asset_dict,
             "rooms": rooms_data,
             "total_rooms": len(rooms_data),
             "available_rooms_count": sum(1 for r in rooms_data if r["is_available_now"]),
@@ -632,7 +655,7 @@ class MeetingRoomService:
 
     def get_web_availability(
         self,
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         start_time: str = "14:00",
         duration: int = 60,
         user_key: Optional[UserKey] = None,
@@ -685,28 +708,41 @@ class MeetingRoomService:
                 "available_rooms_count": 0,
             }
 
-        selected_asset = None
-        if asset_id is not None:
-            selected_asset = next((a for a in all_assets if a.id == asset_id), None)
-        if selected_asset is None:
-            selected_asset = all_assets[0]
+        is_all_locations = (str(asset_id).strip().lower() == "all") if asset_id is not None else False
+
+        if is_all_locations:
+            target_assets = all_assets
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            selected_asset = None
+            if asset_id is not None:
+                try:
+                    aid = int(asset_id)
+                    selected_asset = next((a for a in all_assets if a.id == aid), None)
+                except (ValueError, TypeError):
+                    selected_asset = None
+            if selected_asset is None:
+                selected_asset = all_assets[0]
+            target_assets = [selected_asset]
+            selected_asset_dict = {
+                "id": selected_asset.id,
+                "name": selected_asset.name,
+                "short_label": format_asset_compact_label(selected_asset.name),
+            }
 
         assets_data = [
             {
                 "id": a.id,
                 "name": a.name,
-                "short_label": a.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
-                "selected": (a.id == selected_asset.id),
+                "short_label": format_asset_compact_label(a.name),
+                "selected": (not is_all_locations and a.id == selected_asset_dict["id"]),
             }
             for a in all_assets
         ]
-
-        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
-        item_res = self.client.get_items(selected_asset.id)
-        daily_res = self.client.get_daily_reservations(selected_asset.id, date_str=date_str)
-
-        rooms = _parse_rooms(item_res, selected_asset.id)
-        res_map = _parse_reservations_by_room(daily_res)
 
         # Favorites check
         user_fav_rooms = set()
@@ -719,28 +755,42 @@ class MeetingRoomService:
             except Exception as e:
                 logger.warning(f"Failed to load favorites for web availability: {e}")
 
-        is_asset_fav = (selected_asset.id in user_fav_assets)
+        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
+        rooms_list: List[Dict[str, Any]] = []
+        total_avail_count = 0
 
-        avail_rooms, unavail_rooms = AvailabilityService.find_available_rooms(
-            rooms, res_map, req_start, req_end
-        )
-        avail_room_ids = {r.id for r in avail_rooms}
+        for asset in target_assets:
+            item_res = self.client.get_items(asset.id)
+            daily_res = self.client.get_daily_reservations(asset.id, date_str=date_str)
+
+            rooms = _parse_rooms(item_res, asset.id)
+            res_map = _parse_reservations_by_room(daily_res)
+            is_asset_fav = (asset.id in user_fav_assets)
+            short_label = format_asset_all_location_label(asset.name) if is_all_locations else format_asset_compact_label(asset.name)
+
+            avail_rooms, _ = AvailabilityService.find_available_rooms(
+                rooms, res_map, req_start, req_end
+            )
+            avail_room_ids = {r.id for r in avail_rooms}
+            total_avail_count += len(avail_rooms)
+
+            for r in rooms:
+                is_fav = is_asset_fav or (r.id in user_fav_rooms)
+                is_available = (r.id in avail_room_ids)
+                rooms_list.append({
+                    "id": r.id,
+                    "name": r.name,
+                    "capacity": r.capacity,
+                    "favorite": is_fav,
+                    "available": is_available,
+                    "status_text": "사용 가능" if is_available else "예약 있음",
+                    "asset_id": asset.id,
+                    "asset_name": asset.name,
+                    "asset_short_label": short_label,
+                })
 
         weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
         date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
-
-        rooms_list: List[Dict[str, Any]] = []
-        for r in rooms:
-            is_fav = is_asset_fav or (r.id in user_fav_rooms)
-            is_available = (r.id in avail_room_ids)
-            rooms_list.append({
-                "id": r.id,
-                "name": r.name,
-                "capacity": r.capacity,
-                "favorite": is_fav,
-                "available": is_available,
-                "status_text": "사용 가능" if is_available else "예약 있음",
-            })
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
@@ -749,12 +799,139 @@ class MeetingRoomService:
             "end_time": req_end.strftime("%H:%M"),
             "duration_minutes": duration,
             "assets": assets_data,
-            "selected_asset": {
-                "id": selected_asset.id,
-                "name": selected_asset.name,
-                "short_label": selected_asset.name.replace("[판교] ", "").replace("[대전] ", "").strip(),
-            },
+            "selected_asset": selected_asset_dict,
             "rooms": rooms_list,
             "total_rooms": len(rooms_list),
-            "available_rooms_count": len(avail_rooms),
+            "available_rooms_count": total_avail_count,
+        }
+
+    def get_web_reservations(
+        self,
+        asset_id: Optional[Union[int, str]] = None,
+        query: Optional[str] = None,
+        favorite_only: bool = False,
+        user_key: Optional[UserKey] = None,
+        favorite_service: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Feature: Find meeting room reservations for WHO mode in Web App."""
+        config = get_config()
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        all_assets = self.get_meeting_assets()
+        is_all_locations = (asset_id is None or str(asset_id).strip().lower() == "all")
+
+        target_assets = []
+        if is_all_locations:
+            target_assets = all_assets
+        else:
+            try:
+                aid = int(asset_id)
+                target_assets = [a for a in all_assets if a.id == aid]
+            except Exception:
+                target_assets = all_assets
+
+        user_fav_rooms = set()
+        user_fav_assets = set()
+        if favorite_service and user_key:
+            try:
+                uf = favorite_service.get_user_favorites(user_key)
+                user_fav_rooms = uf.favorite_rooms
+                user_fav_assets = uf.favorite_assets
+            except Exception as e:
+                logger.warning(f"Failed to load favorites for web reservations: {e}")
+
+        date_str = target_date.strftime("%Y-%m-%dT00:00:00.000+09:00")
+        query_norm = query.strip().lower() if query else None
+        reservations_list: List[Dict[str, Any]] = []
+
+        for asset in target_assets:
+            is_asset_fav = (asset.id in user_fav_assets)
+            item_res = self.client.get_items(asset.id)
+            daily_res = self.client.get_daily_reservations(asset.id, date_str=date_str)
+
+            rooms = _parse_rooms(item_res, asset.id)
+            res_map = _parse_reservations_by_room(daily_res)
+            short_label = format_asset_all_location_label(asset.name) if is_all_locations else format_asset_compact_label(asset.name)
+
+            for room in rooms:
+                is_fav = is_asset_fav or (room.id in user_fav_rooms)
+                if favorite_only and not is_fav:
+                    continue
+
+                for r in res_map.get(room.id, []):
+                    reserver = r.reserver_name if config.show_reserver_name else None
+                    title = r.meeting_title if config.show_meeting_title else None
+
+                    if query_norm:
+                        if not reserver or query_norm not in reserver.lower():
+                            continue
+
+                    reservations_list.append({
+                        "id": r.id,
+                        "room_id": room.id,
+                        "room_name": room.name,
+                        "asset_id": asset.id,
+                        "asset_name": asset.name,
+                        "asset_short_label": short_label,
+                        "start": r.start_time.strftime("%H:%M"),
+                        "end": r.end_time.strftime("%H:%M"),
+                        "start_iso": r.start_time.isoformat(),
+                        "end_iso": r.end_time.isoformat(),
+                        "reserver_name": reserver,
+                        "meeting_title": title,
+                        "favorite": is_fav,
+                    })
+
+        reservations_list.sort(key=lambda x: (x["start_iso"], x["asset_id"], x["room_name"]))
+
+        assets_data = [
+            {
+                "id": a.id,
+                "name": a.name,
+                "short_label": format_asset_compact_label(a.name),
+                "selected": (not is_all_locations and len(target_assets) == 1 and a.id == target_assets[0].id),
+            }
+            for a in all_assets
+        ]
+
+        if is_all_locations:
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            sel_asset = target_assets[0] if target_assets else None
+            selected_asset_dict = {
+                "id": sel_asset.id if sel_asset else None,
+                "name": sel_asset.name if sel_asset else "",
+                "short_label": format_asset_compact_label(sel_asset.name) if sel_asset else "",
+            }
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "asset_id": "all" if is_all_locations else (target_assets[0].id if target_assets else None),
+            "selected_asset": selected_asset_dict,
+            "assets": assets_data,
+            "query": query or "",
+            "total_count": len(reservations_list),
+            "reservations": reservations_list,
         }

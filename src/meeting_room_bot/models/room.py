@@ -14,6 +14,8 @@ class Room:
     name: str
     capacity: Optional[int]
     raw_name: str
+    asset_name: Optional[str] = None
+    asset_short_label: Optional[str] = None
 
     @classmethod
     def from_api_dict(cls, item_dict: Dict[str, Any], asset_id: int) -> "Room":

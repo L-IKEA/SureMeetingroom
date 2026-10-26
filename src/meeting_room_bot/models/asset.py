@@ -1,7 +1,61 @@
 """Asset model definition and filtering logic."""
 
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+
+def get_site_and_subname(name: str) -> Tuple[Optional[str], str]:
+    """Extract site prefix like [판교], [대전] and remainder subname."""
+    if not name:
+        return None, ""
+    m = re.match(r"^\[(.*?)\]\s*(.*)$", name.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return None, name.strip()
+
+
+def format_asset_all_location_label(name: str) -> str:
+    """Format asset name for all-locations view, ensuring site/city is clearly retained.
+
+    Examples:
+      '[판교] 7층 회의실' -> '[판교] 7층'
+      '[판교] 1층 컨퍼런스홀' -> '[판교] 1층 컨퍼런스홀'
+      '[대전] 회의실' -> '[대전] 회의실'
+      '판교 7층' -> '판교 7층'
+    """
+    if not name:
+        return ""
+    site, sub = get_site_and_subname(name)
+    if site:
+        if re.match(r"^\d+층\s*회의실$", sub):
+            sub = sub.replace("회의실", "").strip()
+        elif "10층" in sub:
+            sub = "10층"
+        if not sub:
+            sub = "회의실"
+        return f"[{site}] {sub}"
+    return name.strip()
+
+
+def format_asset_compact_label(name: str) -> str:
+    """Format asset name for single-asset view (site prefix stripped).
+
+    Examples:
+      '[판교] 7층 회의실' -> '7층 회의실'
+      '[대전] 회의실' -> '회의실'
+      '[판교] 10층 회의실/프로젝트룸/작업실' -> '10층'
+    """
+    if not name:
+        return ""
+    site, sub = get_site_and_subname(name)
+    if site:
+        if "10층" in sub:
+            return "10층"
+        return sub if sub else name.strip()
+    if "10층" in name:
+        return "10층"
+    return name.strip()
 
 
 @dataclass
@@ -12,6 +66,16 @@ class Asset:
     name: str
     raw_name: str
     description: Optional[str] = None
+
+    @property
+    def all_location_label(self) -> str:
+        """Label formatted for cross-asset / all-locations views (retaining site)."""
+        return format_asset_all_location_label(self.name)
+
+    @property
+    def compact_label(self) -> str:
+        """Label formatted for single-asset views (site prefix stripped)."""
+        return format_asset_compact_label(self.name)
 
     @classmethod
     def from_api_dict(cls, asset_dict: Dict[str, Any]) -> "Asset":

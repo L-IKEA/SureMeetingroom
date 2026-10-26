@@ -11,6 +11,7 @@ from meeting_room_bot.groupware.client import (
     GroupwareAuthError,
     GroupwareNetworkError,
 )
+from meeting_room_bot.models.asset import format_asset_compact_label
 from meeting_room_bot.models.user_key import UserKey
 from meeting_room_bot.providers.base import (
     MeetingRoomQueryProvider,
@@ -61,9 +62,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             assets = service.get_meeting_assets()
             locations = []
             for a in assets:
-                short_label = a.name.replace("[판교] ", "").replace("[대전] ", "")
-                if "10층" in short_label:
-                    short_label = "10층"
+                short_label = format_asset_compact_label(a.name)
                 locations.append({
                     "id": a.id,
                     "name": a.name,
@@ -400,7 +399,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
     def get_timeline(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         target_date: Optional[datetime] = None,
     ) -> QueryResult:
         """Fetch and return timeline grid dataset for specified user and asset."""
@@ -437,7 +436,7 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
     def get_web_availability(
         self,
         user_id: Union[UserKey, str],
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         start_time: str = "14:00",
         duration: int = 60,
         target_date: Optional[datetime] = None,
@@ -473,4 +472,45 @@ class RealMeetingRoomProvider(MeetingRoomQueryProvider):
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
         except Exception as e:
             logger.error(f"Error in get_web_availability for user {user_id}: {e}", exc_info=True)
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+
+    def get_web_reservations(
+        self,
+        user_id: Union[UserKey, str],
+        asset_id: Optional[Union[int, str]] = None,
+        query: Optional[str] = None,
+        favorite_only: bool = False,
+        target_date: Optional[datetime] = None,
+    ) -> QueryResult:
+        """Fetch and return today's reservations for WHO mode in Web App."""
+        if not self.session_mgr.has_session(user_id):
+            return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
+
+        service = self._get_service(user_id)
+        if not service:
+            return QueryResult(status=QueryStatus.NOT_AUTHENTICATED)
+
+        try:
+            user_key = UserKey.from_any(user_id)
+            data = service.get_web_reservations(
+                asset_id=asset_id,
+                query=query,
+                favorite_only=favorite_only,
+                user_key=user_key,
+                favorite_service=self.favorite_service,
+                target_date=target_date,
+            )
+            return QueryResult(status=QueryStatus.SUCCESS, data=data)
+        except GroupwareAuthError as e:
+            logger.warning(f"401 Auth error for user {user_id}: {e}")
+            self.session_mgr.remove_session(user_id)
+            return QueryResult(status=QueryStatus.SESSION_EXPIRED, error_message=str(e))
+        except GroupwareNetworkError as e:
+            logger.error(f"Network error in get_web_reservations for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.NETWORK_ERROR, error_message=str(e))
+        except GroupwareAPIError as e:
+            logger.error(f"Groupware API error in get_web_reservations for user {user_id}: {e}")
+            return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))
+        except Exception as e:
+            logger.error(f"Error in get_web_reservations for user {user_id}: {e}", exc_info=True)
             return QueryResult(status=QueryStatus.GROUPWARE_API_ERROR, error_message=str(e))

@@ -8,6 +8,8 @@ data/*.json
 .venv/
 venv/
 ENV/
+.local_pii_denylist.txt
+private/
 
 # Python
 __pycache__/

@@ -151,9 +151,9 @@
             background: #e2e8f0;
             border-radius: 10px;
             padding: 3px;
-            gap: 4px;
+            gap: 3px;
             width: 100%;
-            max-width: 480px;
+            max-width: 560px;
         }
 
         .mode-nav-btn {
@@ -161,17 +161,18 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            padding: 8px 12px;
+            gap: 4px;
+            padding: 8px 6px;
             border: none;
             background: transparent;
             border-radius: 8px;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             color: #64748b;
             cursor: pointer;
             transition: all 0.15s ease;
             outline: none;
+            white-space: nowrap;
         }
 
         .mode-nav-btn:hover {
@@ -186,7 +187,196 @@
         }
 
         .mode-icon {
+            font-size: 14px;
+        }
+
+        @media (max-width: 380px) {
+            .mode-nav-btn {
+                padding: 6px 3px;
+                font-size: 12px;
+                gap: 2px;
+            }
+            .mode-icon {
+                font-size: 13px;
+            }
+        }
+
+        /* Location Badge for Cross-Asset Display */
+        .location-badge {
+            font-size: 11px;
+            font-weight: 700;
+            color: #1e40af;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 1px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            white-space: nowrap;
+        }
+
+        /* Timeline Asset Section Header (When in All Locations Scope) */
+        .timeline-asset-section-header {
+            background: #f1f5f9;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            position: sticky;
+            left: 0;
+            z-index: 21;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            width: 100%;
+        }
+
+        /* WHO View Styles */
+        .who-search-bar {
+            margin-bottom: 16px;
+        }
+
+        .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 12px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .search-input-wrapper:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .search-icon {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-right: 8px;
+        }
+
+        .who-search-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            color: var(--text-main);
+            background: transparent;
+        }
+
+        .search-clear-btn {
+            background: #e2e8f0;
+            border: none;
+            color: #475569;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            margin-left: 6px;
+        }
+
+        .search-clear-btn:hover {
+            background: #cbd5e1;
+            color: var(--text-main);
+        }
+
+        .who-cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+            gap: 14px;
+        }
+
+        @media (max-width: 480px) {
+            .who-cards-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .who-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .who-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border-color: #cbd5e1;
+        }
+
+        .who-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .who-person-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+        }
+
+        .who-reserver-name {
             font-size: 15px;
+            font-weight: 700;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .who-time-badge {
+            font-size: 12px;
+            font-weight: 700;
+            color: #1d4ed8;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 2px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+        }
+
+        .who-card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #f1f5f9;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .who-location-line {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .who-meeting-title {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.4;
         }
 
         /* Filter Row: Asset Selector + Favorite Filter + Summary Counter */
@@ -919,7 +1109,7 @@
 
     <!-- Controls Bar -->
     <div class="controls-bar">
-        <!-- 1. Top 3-Mode Switcher -->
+        <!-- 1. Top 4-Mode Switcher -->
         <div class="mode-nav-container">
             <nav class="mode-navigation-bar" role="tablist" aria-label="조회 모드">
                 <button type="button" class="mode-nav-btn active" id="mode-now-btn" role="tab" aria-selected="true" onclick="setViewMode('now')">
@@ -928,8 +1118,11 @@
                 <button type="button" class="mode-nav-btn" id="mode-when-btn" role="tab" aria-selected="false" onclick="setViewMode('when')">
                     <span class="mode-icon">🕐</span> 언제
                 </button>
+                <button type="button" class="mode-nav-btn" id="mode-who-btn" role="tab" aria-selected="false" onclick="setViewMode('who')">
+                    <span class="mode-icon">👤</span> 누가
+                </button>
                 <button type="button" class="mode-nav-btn" id="mode-timeline-btn" role="tab" aria-selected="false" onclick="setViewMode('timeline')">
-                    <span class="mode-icon">📊</span> 전체
+                    <span class="mode-icon">📊</span> 타임라인
                 </button>
             </nav>
         </div>
@@ -995,7 +1188,21 @@
             </div>
         </div>
 
-        <!-- C. TIMELINE View -->
+        <!-- C. WHO View -->
+        <div id="who-view-container" class="view-panel" style="display: none;">
+            <div class="who-search-bar">
+                <div class="search-input-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="who-search-input" class="who-search-input" placeholder="이름 검색..." aria-label="예약자 이름 검색" autocomplete="off" oninput="onWhoSearchInput(this.value)">
+                    <button type="button" id="who-search-clear" class="search-clear-btn" aria-label="검색어 지우기" onclick="clearWhoSearch()" style="display: none;">✕</button>
+                </div>
+            </div>
+            <div class="who-cards-grid" id="who-cards-container">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+
+        <!-- D. TIMELINE View -->
         <div id="timeline-view-container" class="view-panel" style="display: none;">
             <div class="timeline-card">
                 <div class="timeline-scroll-container" id="timeline-scroll">
@@ -1024,7 +1231,7 @@
             <div class="modal-header">
                 <div class="modal-title-group">
                     <h2 id="modal-room-name">회의실 상세</h2>
-                    <div class="modal-subtitle" id="modal-room-meta">슈어소프트테크 회의실</div>
+                    <div class="modal-subtitle" id="modal-room-meta">회의실 정보</div>
                 </div>
                 <button type="button" class="modal-close-btn" onclick="closeDetailModal()" aria-label="닫기">✕</button>
             </div>
@@ -1052,20 +1259,26 @@
     <!-- Web App Application Logic -->
     <script>
         // State
-        let currentViewMode = 'now'; // 'now' | 'when' | 'timeline'
+        let currentViewMode = 'now'; // 'now' | 'when' | 'who' | 'timeline'
         let currentFilter = 'all'; // 'all' | 'fav'
-        let currentAssetId = null;
+        let currentAssetId = null; // 'all' | number | null (All Locations or Specific Asset)
+        let currentAssetScope = 'all'; // Current active asset scope ('all' or asset id)
         let currentTimelineData = null;
         let currentWhenData = null;
+        let currentWhoData = null;
         let whenStartTime = '14:00';
         let whenDuration = 60;
+        let whoSearchQuery = '';
+        let whoSearchDebounceTimer = null;
         let isFetching = false;
 
         // Async Request Race Protection & Abort Management
         let timelineRequestSeq = 0;
         let whenRequestSeq = 0;
+        let whoRequestSeq = 0;
         let timelineAbortController = null;
         let whenAbortController = null;
+        let whoAbortController = null;
         let activeRequestsCount = 0;
 
         // DOM Elements
@@ -1120,18 +1333,21 @@
 
             if (initialData && initialData.rooms) {
                 if (initialData.selected_asset && initialData.selected_asset.id !== undefined) {
-                    currentAssetId = Number(initialData.selected_asset.id);
+                    currentAssetId = (initialData.selected_asset.id === 'all') ? 'all' : Number(initialData.selected_asset.id);
                 } else if (initialData.assets && initialData.assets.length > 0) {
                     const sel = initialData.assets.find(a => a.selected) || initialData.assets[0];
                     currentAssetId = Number(sel.id);
                 } else {
-                    currentAssetId = 70;
+                    currentAssetId = 'all';
                 }
+                currentAssetScope = currentAssetId;
                 renderTimelineData(initialData);
                 // Default mode is NOW
                 setViewMode('now');
             } else {
-                loadTimelineData();
+                currentAssetId = 'all';
+                currentAssetScope = 'all';
+                loadTimelineData('all');
             }
         });
 
@@ -1153,7 +1369,7 @@
             }
         }
 
-        // Mode Switching: 'now' | 'when' | 'timeline'
+        // Mode Switching: 'now' | 'when' | 'who' | 'timeline'
         function setViewMode(mode) {
             currentViewMode = mode;
 
@@ -1164,6 +1380,9 @@
             document.getElementById('mode-when-btn').classList.toggle('active', mode === 'when');
             document.getElementById('mode-when-btn').setAttribute('aria-selected', mode === 'when');
 
+            document.getElementById('mode-who-btn').classList.toggle('active', mode === 'who');
+            document.getElementById('mode-who-btn').setAttribute('aria-selected', mode === 'who');
+
             document.getElementById('mode-timeline-btn').classList.toggle('active', mode === 'timeline');
             document.getElementById('mode-timeline-btn').setAttribute('aria-selected', mode === 'timeline');
 
@@ -1173,6 +1392,7 @@
             // Show/Hide View Panels
             document.getElementById('now-view-container').style.display = (mode === 'now') ? 'block' : 'none';
             document.getElementById('when-view-container').style.display = (mode === 'when') ? 'block' : 'none';
+            document.getElementById('who-view-container').style.display = (mode === 'who') ? 'block' : 'none';
             document.getElementById('timeline-view-container').style.display = (mode === 'timeline') ? 'block' : 'none';
 
             // Ensure Asset Dropdown matches global currentAssetId
@@ -1183,7 +1403,7 @@
             if (mode === 'now') {
                 const isStale = !currentTimelineData ||
                     !currentTimelineData.selected_asset ||
-                    Number(currentTimelineData.selected_asset.id) !== currentAssetId;
+                    (String(currentTimelineData.selected_asset.id) !== String(currentAssetId) && (currentTimelineData.selected_asset.id) !== currentAssetId);
                 if (isStale) {
                     loadTimelineData(currentAssetId);
                 } else {
@@ -1192,7 +1412,7 @@
             } else if (mode === 'when') {
                 const isStale = !currentWhenData ||
                     !currentWhenData.selected_asset ||
-                    Number(currentWhenData.selected_asset.id) !== currentAssetId ||
+                    (String(currentWhenData.selected_asset.id) !== String(currentAssetId) && (currentWhenData.selected_asset.id) !== currentAssetId) ||
                     currentWhenData.start_time !== whenStartTime ||
                     Number(currentWhenData.duration_minutes) !== Number(whenDuration);
                 if (isStale) {
@@ -1200,10 +1420,20 @@
                 } else {
                     renderWhenView();
                 }
+            } else if (mode === 'who') {
+                const isStale = !currentWhoData ||
+                    String(currentWhoData.asset_id) !== String(currentAssetId) ||
+                    currentWhoData.query !== whoSearchQuery ||
+                    currentWhoData.favorite_only !== (currentFilter === 'fav');
+                if (isStale) {
+                    loadWhoData(currentAssetId);
+                } else {
+                    renderWhoView();
+                }
             } else if (mode === 'timeline') {
                 const isStale = !currentTimelineData ||
                     !currentTimelineData.selected_asset ||
-                    Number(currentTimelineData.selected_asset.id) !== currentAssetId;
+                    (String(currentTimelineData.selected_asset.id) !== String(currentAssetId) && (currentTimelineData.selected_asset.id) !== currentAssetId);
                 if (isStale) {
                     loadTimelineData(currentAssetId);
                 } else {
@@ -1218,11 +1448,12 @@
             showLoading(true);
 
             const targetAssetId = assetId !== null 
-                ? Number(assetId) 
+                ? ((assetId === 'all') ? 'all' : Number(assetId))
                 : (currentAssetId !== null 
                     ? currentAssetId 
-                    : (assetSelect && assetSelect.value ? Number(assetSelect.value) : 70));
+                    : (assetSelect && assetSelect.value ? ((assetSelect.value === 'all') ? 'all' : Number(assetSelect.value)) : 'all'));
             currentAssetId = targetAssetId;
+            currentAssetScope = currentAssetId;
             if (assetSelect && assetSelect.value !== String(currentAssetId)) {
                 assetSelect.value = String(currentAssetId);
             }
@@ -1272,10 +1503,11 @@
 
                 currentTimelineData = data;
                 if (data.selected_asset && data.selected_asset.id !== undefined) {
-                    currentAssetId = Number(data.selected_asset.id);
+                    currentAssetId = (data.selected_asset.id === 'all') ? 'all' : Number(data.selected_asset.id);
+                    currentAssetScope = currentAssetId;
                 }
                 // Invalidate cached WHEN data if it was for a different asset
-                if (currentWhenData && currentWhenData.selected_asset && Number(currentWhenData.selected_asset.id) !== currentAssetId) {
+                if (currentWhenData && currentWhenData.selected_asset && String(currentWhenData.selected_asset.id) !== String(currentAssetId)) {
                     currentWhenData = null;
                 }
 
@@ -1307,11 +1539,12 @@
             showLoading(true);
 
             const targetAssetId = assetId !== null 
-                ? Number(assetId) 
+                ? ((assetId === 'all') ? 'all' : Number(assetId))
                 : (currentAssetId !== null 
                     ? currentAssetId 
-                    : (assetSelect && assetSelect.value ? Number(assetSelect.value) : 70));
+                    : (assetSelect && assetSelect.value ? ((assetSelect.value === 'all') ? 'all' : Number(assetSelect.value)) : 'all'));
             currentAssetId = targetAssetId;
+            currentAssetScope = currentAssetId;
             if (assetSelect && assetSelect.value !== String(currentAssetId)) {
                 assetSelect.value = String(currentAssetId);
             }
@@ -1378,10 +1611,11 @@
 
                 currentWhenData = data;
                 if (data.selected_asset && data.selected_asset.id !== undefined) {
-                    currentAssetId = Number(data.selected_asset.id);
+                    currentAssetId = (data.selected_asset.id === 'all') ? 'all' : Number(data.selected_asset.id);
+                    currentAssetScope = currentAssetId;
                 }
                 // Invalidate cached TIMELINE data if it was for a different asset
-                if (currentTimelineData && currentTimelineData.selected_asset && Number(currentTimelineData.selected_asset.id) !== currentAssetId) {
+                if (currentTimelineData && currentTimelineData.selected_asset && String(currentTimelineData.selected_asset.id) !== String(currentAssetId)) {
                     currentTimelineData = null;
                 }
 
@@ -1415,19 +1649,161 @@
             }
         }
 
+        // Fetch dynamic reservations data for WHO mode from /api/web/reservations
+        async function loadWhoData(assetId = null) {
+            hideError();
+            showLoading(true);
+
+            const targetAssetId = assetId !== null 
+                ? ((assetId === 'all') ? 'all' : Number(assetId))
+                : (currentAssetId !== null 
+                    ? currentAssetId 
+                    : (assetSelect && assetSelect.value ? ((assetSelect.value === 'all') ? 'all' : Number(assetSelect.value)) : 'all'));
+            currentAssetId = targetAssetId;
+            currentAssetScope = currentAssetId;
+            if (assetSelect && assetSelect.value !== String(currentAssetId)) {
+                assetSelect.value = String(currentAssetId);
+            }
+
+            // Abort prior in-flight who request and increment sequence
+            if (whoAbortController) {
+                try { whoAbortController.abort(); } catch (e) {}
+            }
+            whoAbortController = new AbortController();
+            const currentController = whoAbortController;
+            const requestSeq = ++whoRequestSeq;
+            const requestedAssetId = currentAssetId;
+            const requestedQuery = whoSearchQuery;
+            const requestedFilter = currentFilter;
+
+            const favOnly = (currentFilter === 'fav');
+            let url = `/api/web/reservations?asset_id=${encodeURIComponent(targetAssetId)}&favorite_only=${favOnly}`;
+            if (whoSearchQuery && whoSearchQuery.trim()) {
+                url += `&query=${encodeURIComponent(whoSearchQuery.trim())}`;
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                    signal: currentController.signal
+                });
+
+                if (
+                    requestSeq !== whoRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedQuery !== whoSearchQuery ||
+                    requestedFilter !== currentFilter
+                ) {
+                    return;
+                }
+
+                if (response.status === 401) {
+                    window.location.reload();
+                    return;
+                }
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    if (
+                        requestSeq !== whoRequestSeq ||
+                        requestedAssetId !== currentAssetId ||
+                        requestedQuery !== whoSearchQuery ||
+                        requestedFilter !== currentFilter
+                    ) return;
+                    showError(errData.error || '예약자 정보를 불러오지 못했습니다.');
+                    return;
+                }
+
+                const data = await response.json();
+
+                if (
+                    requestSeq !== whoRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedQuery !== whoSearchQuery ||
+                    requestedFilter !== currentFilter
+                ) {
+                    return;
+                }
+
+                currentWhoData = data;
+                if (data.selected_asset && data.selected_asset.id !== undefined) {
+                    currentAssetId = (data.selected_asset.id === 'all') ? 'all' : Number(data.selected_asset.id);
+                    currentAssetScope = currentAssetId;
+                }
+
+                // Sync asset dropdown
+                if (Array.isArray(data.assets) && data.assets.length > 0) {
+                    syncAssetDropdown(data.assets);
+                } else if (assetSelect && currentAssetId !== null) {
+                    assetSelect.value = String(currentAssetId);
+                }
+
+                if (currentViewMode === 'who') {
+                    renderWhoView();
+                }
+            } catch (err) {
+                if (err && err.name === 'AbortError') return;
+                if (
+                    requestSeq !== whoRequestSeq ||
+                    requestedAssetId !== currentAssetId ||
+                    requestedQuery !== whoSearchQuery ||
+                    requestedFilter !== currentFilter
+                ) {
+                    return;
+                }
+                console.error('Fetch reservations error', err);
+                showError('네트워크 오류가 발생했습니다. 연결을 확인해주세요.');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // WHO search input handler with debounce
+        function onWhoSearchInput(val) {
+            whoSearchQuery = val;
+            const clearBtn = document.getElementById('who-search-clear');
+            if (clearBtn) {
+                clearBtn.style.display = val ? 'flex' : 'none';
+            }
+
+            if (whoSearchDebounceTimer) {
+                clearTimeout(whoSearchDebounceTimer);
+            }
+            whoSearchDebounceTimer = setTimeout(() => {
+                loadWhoData(currentAssetId);
+            }, 250);
+        }
+
+        // WHO clear search handler
+        function clearWhoSearch() {
+            const input = document.getElementById('who-search-input');
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+            onWhoSearchInput('');
+        }
+
         // Sync Asset Dropdown helper
         function syncAssetDropdown(assets) {
             if (!assets || !Array.isArray(assets) || assets.length === 0) return;
-            assetSelect.innerHTML = assets.map(a => {
-                const isSelected = (currentAssetId !== null) 
+            const allOption = `<option value="all" ${currentAssetId === 'all' ? 'selected' : ''}>전체 위치</option>`;
+            const assetOptions = assets.map(a => {
+                const isSelected = (currentAssetId !== 'all' && currentAssetId !== null) 
                     ? (Number(a.id) === currentAssetId)
-                    : Boolean(a.selected);
+                    : Boolean(a.selected && currentAssetId !== 'all');
                 return `<option value="${a.id}" ${isSelected ? 'selected' : ''}>${escapeHtml(a.name)}</option>`;
             }).join('');
-            if (currentAssetId !== null) {
+            assetSelect.innerHTML = allOption + assetOptions;
+            if (currentAssetId === 'all') {
+                assetSelect.value = 'all';
+            } else if (currentAssetId !== null) {
                 assetSelect.value = String(currentAssetId);
             } else if (assetSelect.value) {
-                currentAssetId = Number(assetSelect.value);
+                currentAssetId = (assetSelect.value === 'all') ? 'all' : Number(assetSelect.value);
+                currentAssetScope = currentAssetId;
             }
         }
 
@@ -1435,7 +1811,8 @@
         function renderTimelineData(data) {
             currentTimelineData = data;
             if (data.selected_asset && data.selected_asset.id !== undefined) {
-                currentAssetId = Number(data.selected_asset.id);
+                currentAssetId = (data.selected_asset.id === 'all') ? 'all' : Number(data.selected_asset.id);
+                currentAssetScope = currentAssetId;
             }
 
             // 1. Date Header
@@ -1487,13 +1864,13 @@
                         <div class="empty-state" style="grid-column: 1 / -1;">
                             <div class="icon">⭐</div>
                             <h3>즐겨찾기한 회의실이 없습니다.</h3>
-                            <p>전체 탭에서 회의실을 확인하거나 자주 쓰는 회의실을 확인해보세요.</p>
+                            <p>전체 회의실을 확인하거나 자주 쓰는 회의실을 확인해보세요.</p>
                         </div>`;
                 } else {
                     nowCardsContainer.innerHTML = `
                         <div class="empty-state" style="grid-column: 1 / -1;">
                             <div class="icon">⏳</div>
-                            <h3>현재 바로 사용할 수 있는 회의실이 없습니다.</h3>
+                            <h3>현재 사용 가능한 회의실이 없습니다.</h3>
                             <p>모든 회의실이 사용 중입니다. 언제 탭에서 예약 가능한 시간을 찾아보세요.</p>
                         </div>`;
                 }
@@ -1512,10 +1889,15 @@
                     nextResHtml = `다음 예약: <strong>${escapeHtml(room.next_reservation_start)}</strong>${minsPart}`;
                 }
 
+                const locationBadge = (room.asset_short_label || room.asset_name)
+                    ? `<span class="location-badge">${escapeHtml(room.asset_short_label || room.asset_name)}</span>`
+                    : '';
+
                 card.innerHTML = `
                     <div class="room-card-header">
                         <div class="room-card-title">
                             <span class="now-status-dot avail"></span>
+                            ${locationBadge}
                             <span>${escapeHtml(room.name)}</span>
                             ${room.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
                         </div>
@@ -1558,7 +1940,7 @@
                         <div class="empty-state" style="grid-column: 1 / -1;">
                             <div class="icon">⭐</div>
                             <h3>즐겨찾기한 회의실이 없습니다.</h3>
-                            <p>전체 탭에서 회의실을 확인하거나 다른 시간대를 선택해보세요.</p>
+                            <p>전체 회의실을 확인하거나 다른 시간대를 선택해보세요.</p>
                         </div>`;
                 } else {
                     whenCardsContainer.innerHTML = `
@@ -1574,10 +1956,16 @@
             availRooms.forEach(room => {
                 const card = document.createElement('div');
                 card.className = 'room-card when-card';
+
+                const locationBadge = (room.asset_short_label || room.asset_name)
+                    ? `<span class="location-badge">${escapeHtml(room.asset_short_label || room.asset_name)}</span>`
+                    : '';
+
                 card.innerHTML = `
                     <div class="room-card-header">
                         <div class="room-card-title">
                             <span class="now-status-dot avail"></span>
+                            ${locationBadge}
                             <span>${escapeHtml(room.name)}</span>
                             ${room.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
                         </div>
@@ -1592,7 +1980,82 @@
             });
         }
 
-        // C. Render TIMELINE View
+        // C. Render WHO View Cards
+        function renderWhoView() {
+            const whoContainer = document.getElementById('who-cards-container');
+            whoContainer.innerHTML = '';
+
+            if (!currentWhoData || !Array.isArray(currentWhoData.reservations)) {
+                whoContainer.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <div class="icon">👤</div>
+                        <h3>예약 정보를 불러오지 못했습니다.</h3>
+                    </div>`;
+                updateCounter(0, 0, '오늘 예약');
+                return;
+            }
+
+            const reservations = currentWhoData.reservations;
+            updateCounter(reservations.length, reservations.length, '오늘 예약');
+
+            if (reservations.length === 0) {
+                if (whoSearchQuery && whoSearchQuery.trim()) {
+                    whoContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">🔍</div>
+                            <h3>검색한 예약자를 찾을 수 없습니다.</h3>
+                            <p>'${escapeHtml(whoSearchQuery.trim())}' 이름으로 등록된 오늘 예약이 없습니다.</p>
+                        </div>`;
+                } else if (currentFilter === 'fav') {
+                    whoContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">⭐</div>
+                            <h3>즐겨찾기한 회의실의 예약이 없습니다.</h3>
+                            <p>전체 회의실을 확인하거나 다른 층을 선택해보세요.</p>
+                        </div>`;
+                } else {
+                    whoContainer.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1 / -1;">
+                            <div class="icon">📅</div>
+                            <h3>오늘 예약이 없습니다.</h3>
+                            <p>선택하신 위치에 등록된 회의실 예약이 없습니다.</p>
+                        </div>`;
+                }
+                return;
+            }
+
+            reservations.forEach(res => {
+                const card = document.createElement('div');
+                card.className = 'who-card';
+
+                const reserverName = res.reserver_name ? escapeHtml(res.reserver_name) : '예약자 정보 없음';
+                const meetingTitle = res.meeting_title ? escapeHtml(res.meeting_title) : '회의명 없음';
+                const locationLabel = escapeHtml(res.asset_short_label || res.asset_name || '');
+                const roomName = escapeHtml(res.room_name || '');
+                const timeStr = `${escapeHtml(res.start)} ~ ${escapeHtml(res.end)}`;
+
+                card.innerHTML = `
+                    <div class="who-card-header">
+                        <div class="who-person-info">
+                            <span class="now-status-dot busy"></span>
+                            <span class="who-reserver-name">${reserverName}</span>
+                            ${res.favorite ? '<span class="fav-star" title="즐겨찾기">⭐</span>' : ''}
+                        </div>
+                        <span class="who-time-badge">${timeStr}</span>
+                    </div>
+                    <div class="who-card-body">
+                        <div class="who-location-line">
+                            ${locationLabel ? `<span class="location-badge">${locationLabel}</span>` : ''}
+                            <span>${roomName}</span>
+                        </div>
+                        <div class="who-meeting-title">${meetingTitle}</div>
+                    </div>
+                `;
+                whoContainer.appendChild(card);
+            });
+        }
+
+        // D. Render TIMELINE View
         function renderTimelineTable() {
             roomsContainer.innerHTML = '';
             if (!currentTimelineData || !currentTimelineData.rooms) {
@@ -1620,7 +2083,7 @@
                         <div class="empty-state">
                             <div class="icon">⭐</div>
                             <h3>즐겨찾기된 회의실이 없습니다.</h3>
-                            <p>전체 탭에서 회의실을 확인하거나 자주 쓰는 회의실을 등록해보세요.</p>
+                            <p>전체 회의실을 확인하거나 자주 쓰는 회의실을 등록해보세요.</p>
                         </div>`;
                 } else {
                     roomsContainer.innerHTML = `
@@ -1634,8 +2097,19 @@
             }
 
             const currentPct = currentTimelineData.current_time_percent;
+            let lastAssetId = null;
 
             rooms.forEach(room => {
+                // When in All Locations scope, insert asset section header on asset boundary
+                if (currentAssetId === 'all' && (room.asset_id !== undefined && room.asset_id !== lastAssetId)) {
+                    lastAssetId = room.asset_id;
+                    const sectionHeader = document.createElement('div');
+                    sectionHeader.className = 'timeline-asset-section-header';
+                    const labelText = room.asset_name || room.asset_short_label || '위치';
+                    sectionHeader.innerHTML = `<span>🏢 ${escapeHtml(labelText)}</span>`;
+                    roomsContainer.appendChild(sectionHeader);
+                }
+
                 const row = document.createElement('div');
                 row.className = 'room-row';
 
@@ -1685,7 +2159,10 @@
                         if (res.reserver_name || res.meeting_title) {
                             const titleSpan = document.createElement('div');
                             titleSpan.className = 'block-title';
-                            titleSpan.textContent = [res.reserver_name, res.meeting_title].filter(Boolean).join(' · ');
+                            const parts = [];
+                            if (res.reserver_name) parts.push(res.reserver_name);
+                            if (res.meeting_title) parts.push(res.meeting_title);
+                            titleSpan.textContent = parts.join(' · ');
                             block.appendChild(titleSpan);
                         }
 
@@ -1733,14 +2210,24 @@
         // Change Floor / Asset Handler
         function onAssetChange(assetId) {
             if (!assetId) return;
-            currentAssetId = Number(assetId);
+            if (assetId === 'all') {
+                currentAssetId = 'all';
+            } else {
+                currentAssetId = Number(assetId);
+            }
+            currentAssetScope = currentAssetId;
             assetSelect.value = String(currentAssetId);
 
+            // Invalidate stale data
+            currentTimelineData = null;
+            currentWhenData = null;
+            currentWhoData = null;
+
             if (currentViewMode === 'when') {
-                currentTimelineData = null; // Invalidate stale timeline data
                 loadWhenData(currentAssetId);
+            } else if (currentViewMode === 'who') {
+                loadWhoData(currentAssetId);
             } else {
-                currentWhenData = null; // Invalidate stale when data
                 loadTimelineData(currentAssetId);
             }
         }
@@ -1755,6 +2242,8 @@
                 renderNowView();
             } else if (currentViewMode === 'when') {
                 renderWhenView();
+            } else if (currentViewMode === 'who') {
+                loadWhoData(currentAssetId);
             } else if (currentViewMode === 'timeline') {
                 renderTimelineTable();
             }
@@ -1778,7 +2267,7 @@
         // Update Counter Chip
         function updateCounter(avail, total, customText = null) {
             if (customText) {
-                availableCounter.innerHTML = `🟢 ${escapeHtml(customText)}: <strong>${avail}</strong>개`;
+                availableCounter.innerHTML = `🟢 ${escapeHtml(customText)}: <strong>${avail}</strong>건`;
             } else {
                 availableCounter.innerHTML = `🟢 지금 사용 가능: <strong>${avail}</strong> / ${total}개`;
             }
@@ -1807,6 +2296,8 @@
         function retryActiveQuery() {
             if (currentViewMode === 'when') {
                 loadWhenData(currentAssetId);
+            } else if (currentViewMode === 'who') {
+                loadWhoData(currentAssetId);
             } else {
                 loadTimelineData(currentAssetId);
             }
@@ -1815,10 +2306,12 @@
         // Modal Operations
         function openDetailModal(room, res) {
             modalRoomName.textContent = room.name;
-            modalRoomMeta.textContent = room.capacity ? `정원: ${room.capacity}인실` : '슈어소프트테크 회의실';
+            const locLabel = room.asset_short_label || room.asset_name || '';
+            const capPart = room.capacity ? `정원: ${room.capacity}인실` : '회의실';
+            modalRoomMeta.textContent = locLabel ? `${locLabel} · ${capPart}` : capPart;
             modalTimeRange.textContent = `${res.start_time} ~ ${res.end_time}`;
-            modalReserverName.textContent = res.reserver_name || '(비공개 또는 미등록)';
-            modalMeetingTitle.textContent = res.meeting_title || '(제목 없음)';
+            modalReserverName.textContent = res.reserver_name || '예약자 정보 없음';
+            modalMeetingTitle.textContent = res.meeting_title || '회의명 없음';
 
             detailModal.classList.add('active');
             document.body.style.overflow = 'hidden';

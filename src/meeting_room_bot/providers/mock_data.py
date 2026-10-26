@@ -1,9 +1,10 @@
 """Platform-independent Mock Meeting Room Dataset and Query Logic."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from meeting_room_bot.config import get_config
+from meeting_room_bot.models.asset import format_asset_all_location_label, format_asset_compact_label
 
 SEOUL_TZ = timezone(timedelta(hours=9))
 
@@ -338,7 +339,7 @@ class MockMeetingRoomData:
             locations.append({
                 "id": aid,
                 "name": data["asset_name"],
-                "short_label": data.get("short_label", data["asset_name"]),
+                "short_label": data.get("short_label") or format_asset_compact_label(data["asset_name"]),
                 "is_fav": (aid in (50, 80)),
             })
         return locations
@@ -561,45 +562,67 @@ class MockMeetingRoomData:
                 "available_rooms_count": 0,
             }
 
-        selected_id = asset_id if asset_id is not None and asset_id in cls.MOCK_LOCATIONS_DATA else 70
-        if selected_id not in cls.MOCK_LOCATIONS_DATA:
-            selected_id = mock_locs[0]["id"]
+        is_all_locations = (str(asset_id).strip().lower() == "all") if asset_id is not None else False
+
+        if is_all_locations:
+            selected_id = "all"
+        else:
+            try:
+                selected_id = int(asset_id) if asset_id is not None and int(asset_id) in cls.MOCK_LOCATIONS_DATA else 70
+            except (ValueError, TypeError):
+                selected_id = 70
+            if selected_id not in cls.MOCK_LOCATIONS_DATA:
+                selected_id = mock_locs[0]["id"]
 
         assets_data = [
             {
                 "id": loc["id"],
                 "name": loc["name"],
-                "short_label": loc.get("short_label", loc["name"]),
-                "selected": (loc["id"] == selected_id),
+                "short_label": format_asset_compact_label(loc["name"]),
+                "selected": (not is_all_locations and loc["id"] == selected_id),
             }
             for loc in mock_locs
         ]
 
-        loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
-        raw_rooms = loc_data.get("rooms", [])
+        raw_rooms_tuples: List[Tuple[int, str, str, Dict[str, Any]]] = []
+        if is_all_locations:
+            for loc in mock_locs:
+                aid = loc["id"]
+                ldata = cls.MOCK_LOCATIONS_DATA.get(aid, {})
+                aname = ldata.get("asset_name", loc["name"])
+                ashort = format_asset_all_location_label(aname)
+                for r in ldata.get("rooms", []):
+                    raw_rooms_tuples.append((aid, aname, ashort, r))
+        else:
+            loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+            aname = loc_data.get("asset_name", f"[판교] {selected_id}층")
+            ashort = format_asset_compact_label(aname)
+            for r in loc_data.get("rooms", []):
+                raw_rooms_tuples.append((selected_id, aname, ashort, r))
 
         has_user_favs = cls.has_favorites(user_key) if user_key else True
         fav_rooms_pool = {170, 171, 140, 131, 180, 200}
         fav_assets_pool = {50, 70, 80}
 
         sample_meetings = [
-            ("신지호", "VCU 검증 회의"),
-            ("김태현", "Sprint Planning"),
-            ("이수진", "아키텍처 리뷰"),
-            ("박민우", "고객사 기술 미팅"),
-            ("정하은", "주간 팀 회의"),
-            ("최동욱", "QA 릴리즈 점검"),
-            ("한소희", "UX/UI 디자인 싱크"),
+            ("홍길동", "VCU 검증 회의"),
+            ("신지호", "Sprint Planning"),
+            ("김태현", "아키텍처 리뷰"),
+            ("이수진", "고객사 기술 미팅"),
+            ("박민우", "주간 팀 회의"),
+            ("정하은", "QA 릴리즈 점검"),
+            ("최동욱", "UX/UI 디자인 싱크"),
+            ("한소희", "보안 점검 회의"),
         ]
 
         rooms_data: List[Dict[str, Any]] = []
         meeting_idx = 0
 
-        for r in raw_rooms:
+        for aid, aname, ashort, r in raw_rooms_tuples:
             room_id = r["id"]
             room_name = r["name"]
             capacity = r.get("capacity")
-            is_fav = has_user_favs and ((selected_id in fav_assets_pool) or (room_id in fav_rooms_pool))
+            is_fav = has_user_favs and ((aid in fav_assets_pool) or (room_id in fav_rooms_pool))
 
             schedules = r.get("schedules", [])
             res_blocks: List[Dict[str, Any]] = []
@@ -649,6 +672,9 @@ class MockMeetingRoomData:
                     "id": meeting_idx,
                     "room_id": room_id,
                     "room_name": room_name,
+                    "asset_id": aid,
+                    "asset_name": aname,
+                    "asset_short_label": ashort,
                     "start_time": s_str,
                     "end_time": e_str,
                     "start_iso": s_dt.isoformat(),
@@ -686,7 +712,24 @@ class MockMeetingRoomData:
                 "available_minutes": available_mins,
                 "status_text": status_text,
                 "reservations": res_blocks,
+                "asset_id": aid,
+                "asset_name": aname,
+                "asset_short_label": ashort,
             })
+
+        if is_all_locations:
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+            selected_asset_dict = {
+                "id": selected_id,
+                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
+                "short_label": loc_data.get("short_label", f"{selected_id}층"),
+            }
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
@@ -697,11 +740,7 @@ class MockMeetingRoomData:
             "hours": list(range(start_hour, end_hour + 1)),
             "current_time_percent": round(current_time_percent, 2) if current_time_percent is not None else None,
             "assets": assets_data,
-            "selected_asset": {
-                "id": selected_id,
-                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
-                "short_label": loc_data.get("short_label", f"{selected_id}층"),
-            },
+            "selected_asset": selected_asset_dict,
             "rooms": rooms_data,
             "total_rooms": len(rooms_data),
             "available_rooms_count": sum(1 for rm in rooms_data if rm["is_available_now"]),
@@ -710,7 +749,7 @@ class MockMeetingRoomData:
     @classmethod
     def get_mock_web_availability(
         cls,
-        asset_id: Optional[int] = None,
+        asset_id: Optional[Union[int, str]] = None,
         start_time: str = "14:00",
         duration: int = 60,
         user_key: Optional[Any] = None,
@@ -760,22 +799,43 @@ class MockMeetingRoomData:
                 "available_rooms_count": 0,
             }
 
-        selected_id = asset_id if asset_id is not None and asset_id in cls.MOCK_LOCATIONS_DATA else 70
-        if selected_id not in cls.MOCK_LOCATIONS_DATA:
-            selected_id = mock_locs[0]["id"]
+        is_all_locations = (str(asset_id).strip().lower() == "all") if asset_id is not None else False
+
+        if is_all_locations:
+            selected_id = "all"
+        else:
+            try:
+                selected_id = int(asset_id) if asset_id is not None and int(asset_id) in cls.MOCK_LOCATIONS_DATA else 70
+            except (ValueError, TypeError):
+                selected_id = 70
+            if selected_id not in cls.MOCK_LOCATIONS_DATA:
+                selected_id = mock_locs[0]["id"]
 
         assets_data = [
             {
                 "id": loc["id"],
                 "name": loc["name"],
-                "short_label": loc.get("short_label", loc["name"]),
-                "selected": (loc["id"] == selected_id),
+                "short_label": format_asset_compact_label(loc["name"]),
+                "selected": (not is_all_locations and loc["id"] == selected_id),
             }
             for loc in mock_locs
         ]
 
-        loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
-        raw_rooms = loc_data.get("rooms", [])
+        raw_rooms_tuples: List[Tuple[int, str, str, Dict[str, Any]]] = []
+        if is_all_locations:
+            for loc in mock_locs:
+                aid = loc["id"]
+                ldata = cls.MOCK_LOCATIONS_DATA.get(aid, {})
+                aname = ldata.get("asset_name", loc["name"])
+                ashort = format_asset_all_location_label(aname)
+                for r in ldata.get("rooms", []):
+                    raw_rooms_tuples.append((aid, aname, ashort, r))
+        else:
+            loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+            aname = loc_data.get("asset_name", f"[판교] {selected_id}층")
+            ashort = format_asset_compact_label(aname)
+            for r in loc_data.get("rooms", []):
+                raw_rooms_tuples.append((selected_id, aname, ashort, r))
 
         has_user_favs = cls.has_favorites(user_key) if user_key else True
         fav_rooms_pool = {170, 171, 140, 131, 180, 200}
@@ -785,11 +845,19 @@ class MockMeetingRoomData:
         res_map: Dict[int, List[Reservation]] = {}
         res_counter = 1
 
-        for r in raw_rooms:
+        for aid, aname, ashort, r in raw_rooms_tuples:
             rid = r["id"]
             r_name = r["name"]
             cap = r.get("capacity")
-            room_obj = Room(id=rid, asset_id=selected_id, name=r_name, capacity=cap, raw_name=r_name)
+            room_obj = Room(
+                id=rid,
+                asset_id=aid,
+                name=r_name,
+                capacity=cap,
+                raw_name=r_name,
+                asset_name=aname,
+                asset_short_label=ashort,
+            )
             rooms.append(room_obj)
 
             r_res: List[Reservation] = []
@@ -821,7 +889,7 @@ class MockMeetingRoomData:
 
         rooms_list: List[Dict[str, Any]] = []
         for r in rooms:
-            is_fav = has_user_favs and ((selected_id in fav_assets_pool) or (r.id in fav_rooms_pool))
+            is_fav = has_user_favs and ((r.asset_id in fav_assets_pool) or (r.id in fav_rooms_pool))
             is_available = (r.id in avail_room_ids)
             rooms_list.append({
                 "id": r.id,
@@ -830,7 +898,24 @@ class MockMeetingRoomData:
                 "favorite": is_fav,
                 "available": is_available,
                 "status_text": "사용 가능" if is_available else "예약 있음",
+                "asset_id": r.asset_id,
+                "asset_name": r.asset_name,
+                "asset_short_label": r.asset_short_label,
             })
+
+        if is_all_locations:
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            loc_data = cls.MOCK_LOCATIONS_DATA.get(selected_id, {})
+            selected_asset_dict = {
+                "id": selected_id,
+                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
+                "short_label": loc_data.get("short_label", f"{selected_id}층"),
+            }
 
         return {
             "date": target_date.strftime("%Y-%m-%d"),
@@ -839,14 +924,156 @@ class MockMeetingRoomData:
             "end_time": req_end.strftime("%H:%M"),
             "duration_minutes": duration,
             "assets": assets_data,
-            "selected_asset": {
-                "id": selected_id,
-                "name": loc_data.get("asset_name", f"[판교] {selected_id}층"),
-                "short_label": loc_data.get("short_label", f"{selected_id}층"),
-            },
+            "selected_asset": selected_asset_dict,
             "rooms": rooms_list,
             "total_rooms": len(rooms_list),
             "available_rooms_count": len(avail_rooms),
+        }
+
+    @classmethod
+    def get_mock_web_reservations(
+        cls,
+        asset_id: Optional[Union[int, str]] = None,
+        query: Optional[str] = None,
+        favorite_only: bool = False,
+        user_key: Optional[Any] = None,
+        target_date: Optional[datetime] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Generate mock reservations dataset for WHO mode."""
+        if now is None:
+            now = datetime.now(SEOUL_TZ)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=SEOUL_TZ)
+        else:
+            now = now.astimezone(SEOUL_TZ)
+
+        if target_date is None:
+            target_date = now
+        elif target_date.tzinfo is None:
+            target_date = target_date.replace(tzinfo=SEOUL_TZ)
+        else:
+            target_date = target_date.astimezone(SEOUL_TZ)
+
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+        date_display = f"{target_date.year}년 {target_date.month}월 {target_date.day}일 ({weekday_names[target_date.weekday()]})"
+
+        mock_locs = cls.get_mock_locations()
+        is_all_locations = (asset_id is None or str(asset_id).strip().lower() == "all")
+
+        target_asset_ids = []
+        if is_all_locations:
+            target_asset_ids = [loc["id"] for loc in mock_locs]
+        else:
+            try:
+                aid = int(asset_id)
+                if aid in cls.MOCK_LOCATIONS_DATA:
+                    target_asset_ids = [aid]
+            except Exception:
+                target_asset_ids = [loc["id"] for loc in mock_locs]
+
+        has_user_favs = cls.has_favorites(user_key) if user_key else True
+        fav_rooms_pool = {170, 171, 140, 131, 180, 200}
+        fav_assets_pool = {50, 70, 80}
+
+        sample_meetings = [
+            ("홍길동", "VCU 검증 회의"),
+            ("신지호", "Sprint Planning"),
+            ("김태현", "아키텍처 리뷰"),
+            ("이수진", "고객사 기술 미팅"),
+            ("박민우", "주간 팀 회의"),
+            ("정하은", "QA 릴리즈 점검"),
+            ("최동욱", "UX/UI 디자인 싱크"),
+            ("한소희", "보안 점검 회의"),
+        ]
+
+        query_norm = query.strip().lower() if query else None
+        all_reservations: List[Dict[str, Any]] = []
+        res_idx = 0
+
+        for aid in target_asset_ids:
+            loc_data = cls.MOCK_LOCATIONS_DATA.get(aid, {})
+            asset_name = loc_data.get("asset_name", f"[판교] {aid}층")
+            short_label = format_asset_all_location_label(asset_name) if is_all_locations else format_asset_compact_label(asset_name)
+
+            for r in loc_data.get("rooms", []):
+                room_id = r["id"]
+                room_name = r["name"]
+                is_fav = has_user_favs and ((aid in fav_assets_pool) or (room_id in fav_rooms_pool))
+
+                if favorite_only and not is_fav:
+                    continue
+
+                for s in r.get("schedules", []):
+                    if "~" not in s:
+                        continue
+                    parts = s.split("~")
+                    try:
+                        sh, sm = map(int, parts[0].strip().split(":"))
+                        eh, em = map(int, parts[1].strip().split(":"))
+                        s_dt = target_date.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                        e_dt = target_date.replace(hour=eh, minute=em, second=0, microsecond=0)
+                    except Exception:
+                        continue
+
+                    res_idx += 1
+                    reserver, title = sample_meetings[res_idx % len(sample_meetings)]
+
+                    if query_norm and query_norm not in reserver.lower():
+                        continue
+
+                    all_reservations.append({
+                        "id": res_idx,
+                        "room_id": room_id,
+                        "room_name": room_name,
+                        "asset_id": aid,
+                        "asset_name": asset_name,
+                        "asset_short_label": short_label,
+                        "start": parts[0].strip(),
+                        "end": parts[1].strip(),
+                        "start_iso": s_dt.isoformat(),
+                        "end_iso": e_dt.isoformat(),
+                        "reserver_name": reserver,
+                        "meeting_title": title,
+                        "favorite": is_fav,
+                    })
+
+        all_reservations.sort(key=lambda x: (x["start_iso"], x["asset_id"], x["room_name"]))
+
+        assets_data = [
+            {
+                "id": loc["id"],
+                "name": loc["name"],
+                "short_label": format_asset_compact_label(loc["name"]),
+                "selected": (not is_all_locations and len(target_asset_ids) == 1 and loc["id"] == target_asset_ids[0]),
+            }
+            for loc in mock_locs
+        ]
+
+        if is_all_locations:
+            selected_asset_dict = {
+                "id": "all",
+                "name": "전체 위치",
+                "short_label": "전체 위치",
+            }
+        else:
+            sel_id = target_asset_ids[0] if target_asset_ids else 70
+            ldata = cls.MOCK_LOCATIONS_DATA.get(sel_id, {})
+            selected_asset_dict = {
+                "id": sel_id,
+                "name": ldata.get("asset_name", f"[판교] {sel_id}층"),
+                "short_label": format_asset_compact_label(ldata.get("asset_name", f"[판교] {sel_id}층")),
+            }
+
+        return {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "date_display": date_display,
+            "asset_id": "all" if is_all_locations else int(target_asset_ids[0]),
+            "selected_asset": selected_asset_dict,
+            "assets": assets_data,
+            "query": query or "",
+            "total_count": len(all_reservations),
+            "reservations": all_reservations,
         }
 
 
